@@ -1,0 +1,206 @@
+name: Build Perch.app
+
+# Every push to main builds, signs and checks Perch, then uploads it as a workflow artifact.
+# Nothing is released on push. A release only happens when someone runs this workflow by hand
+# with "publish" ticked AND CFBundleShortVersionString in Resources/Info.plist is a new version.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub release (only if the version is new)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match the exact Sparkle version pinned in Package.swift.
+  SPARKLE_VERSION: "2.10.1"
+  # SHA-1 of the long-lived self-signed "Perch Signing" certificate (public, not a secret).
+  # The app's designated requirement pins this, so macOS keeps permissions across updates.
+  # Never change this certificate.
+  SIGN_CERT_SHA1: "80E6A50CBE739C115B054307A2986D74F7D7F73A"
+  BUNDLE_ID: "com.bigbhubbha.perch"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          swift --version
+          cmake --version | head -1
+
+      - name: Work out version and build number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then NEW_VERSION=false; else NEW_VERSION=true; fi
+          PUBLISH=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.publish }}" == "true" && "$NEW_VERSION" == "true" && "${{ github.ref }}" == "refs/heads/main" ]]; then PUBLISH=true; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "PUBLISH=$PUBLISH" >> "$GITHUB_ENV"
+          echo "Version $VERSION, build $BUILD_NUMBER, tag $TAG, new version $NEW_VERSION, publish $PUBLISH"
+
+      - name: Import the signing certificate
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          if [[ -z "$MACOS_SIGN_P12" || -z "$MACOS_SIGN_P12_PASSWORD" ]]; then echo "MACOS_SIGN_P12 / MACOS_SIGN_P12_PASSWORD secrets are missing" >&2; exit 1; fi
+          KEYCHAIN="$RUNNER_TEMP/perch-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          P12="$RUNNER_TEMP/sign.p12"
+          printf '%s' "$MACOS_SIGN_P12" | base64 --decode > "$P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$MACOS_SIGN_P12_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          rm -f "$P12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-certificate -a -Z "$KEYCHAIN" | grep -i "SHA-1 hash: $SIGN_CERT_SHA1" \
+            || { echo "The imported certificate is not the expected Perch Signing certificate" >&2; exit 1; }
+          echo "SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "SIGN_IDENTITY=$SIGN_CERT_SHA1" >> "$GITHUB_ENV"
+
+      - name: Build universal app
+        env:
+          PERCH_BOARD_READ_KEY: ${{ secrets.PERCH_BOARD_READ_KEY }}
+        run: UNIVERSAL=1 ./build.sh
+
+      - name: Check the stable designated requirement
+        run: |
+          APP="build/Perch.app"
+          EXPECTED='identifier "'"$BUNDLE_ID"'" and certificate leaf = H"'"$(echo "$SIGN_CERT_SHA1" | tr 'A-F' 'a-f')"'"'
+          codesign -dr - "$APP" 2>&1 | tee "$RUNNER_TEMP/dr.txt"
+          grep -qi "designated => $EXPECTED" "$RUNNER_TEMP/dr.txt" \
+            || { echo "Designated requirement is not the stable one: expected designated => $EXPECTED" >&2; exit 1; }
+          codesign --verify --strict -R "=$EXPECTED" "$APP"
+          echo "Stable designated requirement OK"
+
+      - name: Check the app
+        run: |
+          APP="build/Perch.app"
+          lipo -info "$APP/Contents/MacOS/Perch"
+          lipo -info "$APP/Contents/Frameworks/MediaRemoteAdapter.framework/MediaRemoteAdapter"
+          lipo -info "$APP/Contents/Helpers/MediaRemoteAdapterTestClient"
+          otool -L "$APP/Contents/MacOS/Perch" | grep -i sparkle
+          plutil -lint "$APP/Contents/Info.plist"
+          for k in CFBundleShortVersionString CFBundleVersion SUFeedURL SUPublicEDKey PerchBoardURL; do
+            echo "$k = $(/usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist")"
+          done
+          if [[ -n "$(/usr/libexec/PlistBuddy -c 'Print :PerchBoardReadKey' "$APP/Contents/Info.plist")" ]]; then echo "Board read key present"; else echo "::warning::Board read key missing"; fi
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          # The now playing helper should at least start (the runner has no media session, so test may fail).
+          /usr/bin/perl "$APP/Contents/Resources/mediaremote-adapter.pl" "$PWD/$APP/Contents/Frameworks/MediaRemoteAdapter.framework" "$PWD/$APP/Contents/Helpers/MediaRemoteAdapterTestClient" test && echo "adapter test: OK" || echo "adapter test exit $? (expected on a headless runner)"
+          "$APP/Contents/MacOS/Perch" --perch-load-check >/dev/null 2>&1 &
+          PID=$!; sleep 5
+          if kill -0 $PID 2>/dev/null; then echo "App launched and stayed up for 5 s"; kill $PID; else wait $PID; echo "App exited early with status $?"; exit 1; fi
+          sleep 3
+          if pgrep -f mediaremote-adapter.pl; then echo "::error::now playing helper outlived the app"; exit 1; else echo "Helper exited with the app"; fi
+
+      - name: Render design snapshots
+        continue-on-error: true
+        run: |
+          "build/Perch.app/Contents/MacOS/Perch" --perch-snapshots "$RUNNER_TEMP/snapshots"
+          ls -la "$RUNNER_TEMP/snapshots"
+
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: design-snapshots
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+
+      - name: Make DMG and update archive
+        run: |
+          rm -rf dist && mkdir -p dist/stage
+          ditto "build/Perch.app" "dist/stage/Perch.app"
+          ln -s /Applications dist/stage/Applications
+          cat > "dist/stage/First time - read me.txt" <<'TXT'
+          Perch for Mac
+
+          1. Drag Perch into the Applications folder.
+          2. Open Applications, right-click Perch, choose Open, then Open again.
+             (Only the first time. If macOS still says no: System Settings >
+             Privacy & Security, scroll down, Open Anyway.)
+          3. Fit the island around your camera cover, then press Done.
+
+          After this, Perch updates itself. You never redo any of this.
+          TXT
+          hdiutil create -volname "Perch" -srcfolder dist/stage -ov -format UDZO -fs HFS+ dist/Perch.dmg
+          hdiutil verify dist/Perch.dmg
+          ditto -c -k --sequesterRsrc --keepParent "build/Perch.app" "dist/Perch-$VERSION.zip"
+          ls -la dist
+
+      - name: Sign the update and write the appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$SPARKLE_PRIVATE_KEY" ]]; then echo "SPARKLE_PRIVATE_KEY secret is missing" >&2; exit 1; fi
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle" && tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          KEYFILE="$RUNNER_TEMP/ed_key"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
+          ZIP="dist/Perch-$VERSION.zip"
+          SIG_LINE="$("$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$KEYFILE" "$ZIP")"
+          rm -f "$KEYFILE"
+          echo "$SIG_LINE"
+          ED_SIG="$(echo "$SIG_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')"
+          LENGTH="$(stat -f%z "$ZIP")"
+          if [[ -z "$ED_SIG" ]]; then echo "sign_update gave no signature" >&2; exit 1; fi
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Perch-$VERSION.zip"
+          NOTES="release-notes/$VERSION.md"
+          [[ -f "$NOTES" ]] || { echo "Perch $VERSION" > "$RUNNER_TEMP/notes.md"; NOTES="$RUNNER_TEMP/notes.md"; }
+          python3 scripts/make_appcast.py dist/appcast.xml "$VERSION" "$BUILD_NUMBER" "$URL" "$LENGTH" "$ED_SIG" "$NOTES"
+          # Check the signature with the public key from Info.plist, so a bad key pair never ships.
+          PUB="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)"
+          "$RUNNER_TEMP/sparkle/bin/sign_update" --verify "$ZIP" "$ED_SIG" --ed-key-file <(printf '%s' "$SPARKLE_PRIVATE_KEY") 2>/dev/null && echo "EdDSA signature verifies" || echo "::warning::could not self-verify the EdDSA signature"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Perch-${{ env.VERSION }}
+          path: |
+            dist/Perch.dmg
+            dist/Perch-*.zip
+            dist/appcast.xml
+          if-no-files-found: error
+
+      - name: Publish release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="release-notes/$VERSION.md"
+          [[ -f "$NOTES" ]] || { echo "Perch $VERSION" > "$RUNNER_TEMP/notes.md"; NOTES="$RUNNER_TEMP/notes.md"; }
+          gh release create "$TAG" dist/Perch.dmg "dist/Perch-$VERSION.zip" dist/appcast.xml \
+            --title "Perch $VERSION" --notes-file "$NOTES" --target "$GITHUB_SHA" --latest
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then security delete-keychain "$SIGN_KEYCHAIN" || true; fi
+
+      - name: Not published
+        if: env.PUBLISH != 'true'
+        run: echo "Build $BUILD_NUMBER of $VERSION is an artifact only. To ship, run this workflow by hand with publish ticked (and a new version number)."

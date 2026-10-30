@@ -1,0 +1,14 @@
+.build/
+build/
+dist/
+*.dmg
+.DS_Store
+.swiftpm/
+xcuserdata/
+DerivedData/
+cloudflare/node_modules/
+cloudflare/.wrangler/
+cloudflare/.dev.vars
+.env
+*.p12
+*.key

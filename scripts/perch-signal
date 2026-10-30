@@ -1,0 +1,28 @@
+#!/bin/bash
+# Tell Perch (the notch app) what a Grok Bot agent is doing.
+#   perch-signal start  "Architect III" "Building Perch v1"
+#   perch-signal update "Architect III" "Waiting on CI"
+#   perch-signal done   "Architect III" "CI is green"
+#   perch-signal fail   "Architect III" "Build broke"
+#   perch-signal clear  "Architect III"
+# Reads the write key from ~/.perch/board_write_key (never pass it on the command line).
+set -euo pipefail
+BOARD="${PERCH_BOARD_URL:-https://perch-board.papertree.workers.dev}"
+KEY_FILE="${PERCH_WRITE_KEY_FILE:-$HOME/.perch/board_write_key}"
+cmd="${1:-}"; agent="${2:-}"; text="${3:-}"
+if [[ -z "$cmd" || -z "$agent" ]]; then sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
+[[ -r "$KEY_FILE" ]] || { echo "No write key at $KEY_FILE" >&2; exit 1; }
+case "$cmd" in
+  start|started) status=started; field=task ;;
+  update|working) status=working; field=task ;;
+  done|finish|finished) status=finished; field=note ;;
+  fail|failed) status=failed; field=note ;;
+  clear)
+    id="$(printf '%s' "$agent" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')"
+    curl -fsS -X DELETE "$BOARD/v1/agents/$id" -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$KEY_FILE")"); echo; exit 0 ;;
+  *) echo "Unknown command: $cmd" >&2; exit 2 ;;
+esac
+body="$(python3 -c 'import json,sys; d={"agent":sys.argv[1],"status":sys.argv[2]}; t=sys.argv[4]; d[sys.argv[3]]=t if t else None; print(json.dumps(d))' "$agent" "$status" "$field" "$text")"
+curl -fsS -X POST "$BOARD/v1/events" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$KEY_FILE")") --data "$body"
+echo

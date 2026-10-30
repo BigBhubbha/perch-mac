@@ -1,0 +1,17 @@
+name = "perch-board"
+main = "worker.mjs"
+compatibility_date = "2026-10-01"
+
+# One Durable Object holds the whole board, so reads always see the latest write.
+# SQLite-backed Durable Objects are on the Workers free plan.
+[[durable_objects.bindings]]
+name = "BOARD"
+class_name = "Board"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Board"]
+
+# Secrets (set with `wrangler secret put`, never committed):
+#   WRITE_KEY  agents use it to report started / finished
+#   READ_KEY   the Perch app uses it to read the board

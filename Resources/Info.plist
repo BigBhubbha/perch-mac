@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Perch</string>
+    <key>CFBundleName</key>
+    <string>Perch</string>
+    <key>CFBundleExecutable</key>
+    <string>Perch</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.bigbhubbha.perch</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Perch, made for Shabd's MacBook</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Perch asks Spotify or Music what is playing, and sends play, pause and skip, when the faster way is not available.</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/BigBhubbha/perch-mac/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>0NJ3AoMnZuGMTdgSEhXsaSaaWOdnwSMa+kpQhNZ+BLo=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>PerchBoardURL</key>
+    <string>https://perch-board.papertree.workers.dev</string>
+    <key>PerchBoardReadKey</key>
+    <string></string>
+</dict>
+</plist>
