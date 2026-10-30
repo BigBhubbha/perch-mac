@@ -113,6 +113,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           # The now playing helper should at least start (the runner has no media session, so test may fail).
           /usr/bin/perl "$APP/Contents/Resources/mediaremote-adapter.pl" "$PWD/$APP/Contents/Frameworks/MediaRemoteAdapter.framework" "$PWD/$APP/Contents/Helpers/MediaRemoteAdapterTestClient" test && echo "adapter test: OK" || echo "adapter test exit $? (expected on a headless runner)"
+          # The installer's test start must answer quickly and exit.
+          "$APP/Contents/MacOS/Perch" --perch-health-check "$RUNNER_TEMP/health.json"
+          cat "$RUNNER_TEMP/health.json"; grep -q '"ok":true' "$RUNNER_TEMP/health.json"
           "$APP/Contents/MacOS/Perch" --perch-load-check >/dev/null 2>&1 &
           PID=$!; sleep 5
           if kill -0 $PID 2>/dev/null; then echo "App launched and stayed up for 5 s"; kill $PID; else wait $PID; echo "App exited early with status $?"; exit 1; fi
@@ -142,8 +145,9 @@ jobs:
 
           1. Drag Perch into the Applications folder.
           2. Open Applications, right-click Perch, choose Open, then Open again.
-             (Only the first time. If macOS still says no: System Settings >
-             Privacy & Security, scroll down, Open Anyway.)
+             (Only the first time. If the Dock icon just keeps bouncing, quit it
+             and paste this into Terminal instead, it installs a clean copy:
+             curl -fsSL https://raw.githubusercontent.com/BigBhubbha/perch-mac/main/scripts/install.sh | sh )
           3. Fit the island around your camera cover, then press Done.
 
           After this, Perch updates itself. You never redo any of this.
@@ -151,7 +155,20 @@ jobs:
           hdiutil create -volname "Perch" -srcfolder dist/stage -ov -format UDZO -fs HFS+ dist/Perch.dmg
           hdiutil verify dist/Perch.dmg
           ditto -c -k --sequesterRsrc --keepParent "build/Perch.app" "dist/Perch-$VERSION.zip"
+          (cd dist && shasum -a 256 Perch.dmg "Perch-$VERSION.zip" > SHA256SUMS && cat SHA256SUMS)
+          cp scripts/install.sh dist/install.sh
           ls -la dist
+
+      - name: Test the curl installer (fresh build into ~/Applications, then the live release)
+        run: |
+          PERCH_LOCAL_ZIP="$PWD/dist/Perch-$VERSION.zip" PERCH_DEST="$HOME/Applications" PERCH_NO_OPEN=1 sh scripts/install.sh
+          test -d "$HOME/Applications/Perch.app"
+          if xattr -p com.apple.quarantine "$HOME/Applications/Perch.app" 2>/dev/null; then echo "quarantine flag present" >&2; exit 1; fi
+          "$HOME/Applications/Perch.app/Contents/MacOS/Perch" --perch-health-check "$RUNNER_TEMP/h2.json" && cat "$RUNNER_TEMP/h2.json"
+          rm -rf "$HOME/Applications/Perch.app"
+          # The one-liner as Shabd runs it, against whatever release is live right now.
+          PERCH_DEST="$RUNNER_TEMP/live-apps" PERCH_NO_OPEN=1 sh scripts/install.sh
+          codesign -dv "$RUNNER_TEMP/live-apps/Perch.app" 2>&1 | grep -E "Identifier|Authority" || true
 
       - name: Sign the update and write the appcast
         env:
@@ -184,6 +201,8 @@ jobs:
             dist/Perch.dmg
             dist/Perch-*.zip
             dist/appcast.xml
+            dist/SHA256SUMS
+            dist/install.sh
           if-no-files-found: error
 
       - name: Publish release
@@ -193,7 +212,7 @@ jobs:
         run: |
           NOTES="release-notes/$VERSION.md"
           [[ -f "$NOTES" ]] || { echo "Perch $VERSION" > "$RUNNER_TEMP/notes.md"; NOTES="$RUNNER_TEMP/notes.md"; }
-          gh release create "$TAG" dist/Perch.dmg "dist/Perch-$VERSION.zip" dist/appcast.xml \
+          gh release create "$TAG" dist/Perch.dmg "dist/Perch-$VERSION.zip" dist/appcast.xml dist/SHA256SUMS dist/install.sh \
             --title "Perch $VERSION" --notes-file "$NOTES" --target "$GITHUB_SHA" --latest
 
       - name: Remove the signing keychain

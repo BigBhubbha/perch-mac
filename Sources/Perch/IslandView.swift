@@ -11,7 +11,7 @@ struct IslandView: View {
 
     var body: some View {
         let g = prefs.geometry
-        let wings = prefs.showWings && (music.isPlaying || !board.working.isEmpty)
+        let wings = prefs.showWings && model.wingsOn
         let size = model.size(g, wings: wings)
         let open = model.isOpen
         let shape = IslandShape(radius: open ? 32 : g.cornerRadius, ear: g.topOffset > 0 ? 0 : (open ? 12 : 6))
@@ -57,7 +57,7 @@ struct RestingWings: View {
     var body: some View {
         HStack(spacing: 0) {
             ZStack {
-                if music.isPlaying {
+                if music.track != nil {
                     ArtThumb(image: music.artwork, accent: music.accent, side: 22)
                 } else if !board.working.isEmpty {
                     Image(systemName: "sparkle").font(.system(size: 11, weight: .semibold)).foregroundStyle(Ink.lime.opacity(0.9))
@@ -67,9 +67,9 @@ struct RestingWings: View {
             Color.clear.frame(width: g.width)
             ZStack {
                 if !board.working.isEmpty {
-                    MiniDots(count: board.working.count)
-                } else if music.isPlaying {
-                    EqualizerBars(color: music.accent)
+                    StillDots(count: board.working.count)
+                } else if music.track != nil {
+                    StillBars(color: music.accent)
                 }
             }
             .frame(width: IslandModel.wing)
@@ -175,7 +175,7 @@ struct OpenIsland: View {
 
     private var headerRight: some View {
         HStack(spacing: 12) {
-            if !board.working.isEmpty { MiniDots(count: board.working.count) }
+            if !board.working.isEmpty { StillDots(count: board.working.count) }
             TimelineView(.everyMinute) { ctx in
                 Text(ctx.date, format: .dateTime.hour().minute())
                     .font(.round(13, .medium))
@@ -724,6 +724,27 @@ struct MiniDots: View {
                 Text("+\(count - 4)").font(.round(9.5, .bold)).foregroundStyle(Ink.lime).padding(.leading, 6)
             }
         }
+    }
+}
+
+/// The resting island never moves on its own: still dots and still bars, no breathing or bobbing.
+struct StillDots: View {
+    let count: Int
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<min(count, 4), id: \.self) { _ in Circle().fill(Ink.lime).frame(width: 5, height: 5) }
+            if count > 4 { Text("+\(count - 4)").font(.round(9.5, .bold)).foregroundStyle(Ink.lime) }
+        }
+    }
+}
+
+struct StillBars: View {
+    let color: Color
+    var body: some View {
+        HStack(alignment: .center, spacing: 2.5) {
+            ForEach([7.0, 13.0, 9.0, 5.0], id: \.self) { h in Capsule().fill(color).frame(width: 2.6, height: h) }
+        }
+        .frame(height: 16)
     }
 }
 

@@ -19,7 +19,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.1.1</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -42,6 +42,8 @@
     <true/>
     <key>SUScheduledCheckInterval</key>
     <integer>86400</integer>
+    <key>PerchHealthCheck</key>
+    <true/>
     <key>PerchBoardURL</key>
     <string>https://perch-board.papertree.workers.dev</string>
     <key>PerchBoardReadKey</key>

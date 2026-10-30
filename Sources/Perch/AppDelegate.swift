@@ -25,8 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        if !loadCheck, Installer.offerMoveIfNeeded() { return }
-
         installSignalHandlers()
         updater = Updater()
         setUpMainMenu()
@@ -47,9 +45,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         board.start()
         music.start()
 
-        if !prefs.hasCalibrated && !loadCheck {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.startCalibration(firstRun: true) }
+        // Finish launching first (so the Dock icon stops bouncing), then ask about moving.
+        if !loadCheck && !Installer.isInApplications {
+            DispatchQueue.main.async { [weak self] in
+                if Installer.offerMoveIfNeeded() { return }
+                self?.startFirstRunIfNeeded()
+            }
+        } else {
+            startFirstRunIfNeeded()
         }
+    }
+
+    private func startFirstRunIfNeeded() {
+        guard !prefs.hasCalibrated && !loadCheck else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.startCalibration(firstRun: true) }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -4,6 +4,19 @@ A Dynamic Island for Shabd's MacBook. It rests behind the lime camera cover, and
 the pointer on it, it opens into a small panel with what is playing, quick notes, your Grok Bot
 agents, and (next version) Gmail.
 
+## Install
+
+Paste into Terminal:
+
+```
+curl -fsSL https://raw.githubusercontent.com/BigBhubbha/perch-mac/main/scripts/install.sh | sh
+```
+
+It stops any stuck Perch, moves old copies to the Trash, downloads the newest release, checks it is
+signed by the Perch Signing certificate, and installs it in /Applications (or ~/Applications when the
+account is not an admin). A copy downloaded with a browser is quarantined, and on macOS 26 Gatekeeper can
+hold it forever with the Dock icon bouncing; curl avoids that.
+
 ## What is in here
 
 | Path | What it is |

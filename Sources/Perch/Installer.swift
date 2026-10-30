@@ -4,10 +4,20 @@ import AppKit
 
 @MainActor
 enum Installer {
-    static let target = URL(fileURLWithPath: "/Applications/Perch.app")
+    static let systemTarget = URL(fileURLWithPath: "/Applications/Perch.app")
+    static var userTarget: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Perch.app")
+    }
+
+    /// /Applications when this account can write there, otherwise ~/Applications (non-admin accounts).
+    /// Sparkle updates in place wherever Perch lives, as long as that folder is writable.
+    static var target: URL {
+        FileManager.default.isWritableFile(atPath: "/Applications") ? systemTarget : userTarget
+    }
 
     static var isInApplications: Bool {
-        Bundle.main.bundleURL.standardizedFileURL.path == target.path
+        let here = Bundle.main.bundleURL.standardizedFileURL.path
+        return here == systemTarget.path || here == userTarget.standardizedFileURL.path
     }
 
     /// Returns true when Perch is moving itself and this copy is about to quit.
@@ -17,7 +27,7 @@ enum Installer {
         // Never nag about builds sitting in a developer's build folder.
         if here.path.contains("/build/") || here.path.contains("/.build/") { return false }
 
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         let alert = NSAlert()
         alert.messageText = "Move Perch to Applications?"
         alert.informativeText = "Perch keeps itself up to date from there, and macOS remembers its permissions in one place. It only takes a second."
@@ -34,6 +44,8 @@ enum Installer {
             where app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
                 app.terminate()
             }
+            let target = self.target
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: target.path) {
                 try fm.trashItem(at: target, resultingItemURL: nil)
             }
@@ -54,7 +66,7 @@ enum Installer {
         } catch {
             let fail = NSAlert()
             fail.messageText = "Perch could not move itself"
-            fail.informativeText = "Drag Perch into the Applications folder in Finder, then open it from there.\n\n\(error.localizedDescription)"
+            fail.informativeText = "Paste this into Terminal instead:\ncurl -fsSL https://raw.githubusercontent.com/BigBhubbha/perch-mac/main/scripts/install.sh | sh\n\n\(error.localizedDescription)"
             fail.runModal()
             return false
         }

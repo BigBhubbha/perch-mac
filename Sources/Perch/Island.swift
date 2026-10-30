@@ -37,6 +37,9 @@ final class IslandModel: ObservableObject {
     @Published var state: State = .resting
     @Published var tab: IslandTab = .playing { didSet { Prefs.shared.lastTab = tab.rawValue } }
     @Published var showingMenu = false
+    /// Debounced "something to show beside the cover". Turns on at once, turns off only after a few
+    /// quiet seconds, so a track change or a flickering play state never makes the island twitch.
+    @Published var wingsOn = false
 
     var onCheckForUpdates: () -> Void = {}
     var onOpenSettings: () -> Void = {}
@@ -130,6 +133,11 @@ final class IslandController {
     private var bloomTask: Task<Void, Never>?
     private var watchTimer: Timer?
     private var bloomQueue: [BloomInfo] = []
+    /// Hover hysteresis: after the island closes, the pointer has to leave the resting area once
+    /// before hovering can open it again. This stops open, close, open loops at the top edge.
+    private var hoverArmed = true
+    private var closedAt = Date.distantPast
+    private var wingsOffTask: Task<Void, Never>?
     var suspended = false { didSet { panel.alphaValue = suspended ? 0 : 1 } }
 
     private let shadowRoom: CGFloat = 36
@@ -145,6 +153,16 @@ final class IslandController {
         panel.contentView = host
         panel.ignoresMouseEvents = true
         panel.onEscape = { [weak self] in self?.close() }
+
+        // Wings: on immediately, off after 4 quiet seconds.
+        music.$track.map { $0?.playing == true }.removeDuplicates()
+            .combineLatest(board.$agents.map { $0.contains(where: \.isWorking) }.removeDuplicates())
+            .map { $0 || $1 }
+            .removeDuplicates()
+            .sink { [weak self] on in
+                MainActor.assumeIsolated { self?.setWings(on) }
+            }
+            .store(in: &bag)
 
         prefs.$geometry.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { self?.place() }
@@ -168,14 +186,30 @@ final class IslandController {
         NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first
     }
 
+    /// The window is one fixed size (big enough for the open island) and never moves or resizes while
+    /// you use it. Only the drawing inside changes, so nothing shifts under the pointer.
     func place() {
         guard let screen = homeScreen else { return }
         let g = prefs.geometry
         let m = model.maxSize(g)
-        let w = m.width + shadowRoom * 2
-        let h = g.topOffset + m.height + shadowRoom
+        let w = (m.width + shadowRoom * 2).rounded()
+        let h = (g.topOffset + m.height + shadowRoom).rounded()
         let f = screen.frame
-        panel.setFrame(NSRect(x: f.midX + g.horizontalOffset - w / 2, y: f.maxY - h, width: w, height: h), display: true)
+        let target = NSRect(x: (f.midX + g.horizontalOffset - w / 2).rounded(), y: f.maxY - h, width: w, height: h)
+        if panel.frame != target { panel.setFrame(target, display: true) }
+    }
+
+    private func setWings(_ on: Bool) {
+        wingsOffTask?.cancel()
+        if on {
+            if !model.wingsOn { withAnimation(Motion.wing) { model.wingsOn = true } }
+            return
+        }
+        wingsOffTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            withAnimation(Motion.wing) { self.model.wingsOn = false }
+        }
     }
 
     /// Where the island is on screen right now, in screen coordinates.
@@ -188,9 +222,7 @@ final class IslandController {
                       width: s.width, height: s.height)
     }
 
-    private var wingsVisible: Bool {
-        prefs.showWings && (music.isPlaying || !board.working.isEmpty)
-    }
+    private var wingsVisible: Bool { prefs.showWings && model.wingsOn }
 
     // MARK: Mouse
 
@@ -225,6 +257,11 @@ final class IslandController {
         switch model.state {
         case .resting, .bloom:
             let hot = islandRect(for: model.state).insetBy(dx: -6, dy: -4)
+            if !hoverArmed {
+                // Re-arm only once the pointer has really left the island and a moment has passed.
+                if !hot.insetBy(dx: -10, dy: -10).contains(p) && Date().timeIntervalSince(closedAt) > 0.35 { hoverArmed = true }
+                return
+            }
             guard prefs.openOnHover, hot.contains(p) else { hoverTask?.cancel(); hoverTask = nil; return }
             guard hoverTask == nil else { return }
             let delay = UInt64(max(0, prefs.hoverDelay) * 1_000_000_000)
@@ -307,6 +344,8 @@ final class IslandController {
             panel.orderFrontRegardless()
         }
         panel.ignoresMouseEvents = true
+        hoverArmed = false
+        closedAt = Date()
         withAnimation(Motion.close) { model.state = .resting }
         playNextBloom()
     }
