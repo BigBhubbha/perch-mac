@@ -48,7 +48,7 @@ enum Snapshots {
         let notes = NotesStore(file: tmp)
         let now = Date()
         notes.setSample([
-            Note(text: "Lab email to Dr. Hester\nAsk about the C. elegans summer spot, mention the poster", pinned: true,
+            Note(text: "Email the lab\nAsk about the summer spot, mention the poster", pinned: true,
                  created: now, updated: now.addingTimeInterval(-600)),
             Note(text: "APUSH\nUnit 6 DBQ outline due Friday", created: now, updated: now.addingTimeInterval(-7200)),
             Note(text: "Perch ideas\nWeather on the left wing? Calendar peek", created: now, updated: now.addingTimeInterval(-86400)),

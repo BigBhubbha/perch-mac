@@ -12,3 +12,5 @@ cloudflare/.dev.vars
 .env
 *.p12
 *.key
+previews/*.png
+!previews/app-icon.png
