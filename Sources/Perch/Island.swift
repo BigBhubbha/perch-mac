@@ -148,6 +148,7 @@ final class IslandModel: ObservableObject {
 class IslandPanel: NSPanel {
     var allowsKey = false
     var onEscape: (() -> Void)?
+    var onKey: ((NSEvent) -> Bool)?
 
     init(contentRect: NSRect) {
         super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -167,6 +168,10 @@ class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
+    override func keyDown(with event: NSEvent) {
+        if let onKey, onKey(event) { return }
+        if event.keyCode == 53 { onEscape?() } else { super.keyDown(with: event) }
+    }
 }
 
 /// Buttons work on the first click even though Perch never becomes the active app.

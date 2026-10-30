@@ -98,7 +98,7 @@ final class GmailCenter: ObservableObject {
     private func schedule() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { Task { await self?.refresh() } }
+            Task { @MainActor in await self?.refresh() }
         }
         timer?.tolerance = 20
     }
