@@ -23,7 +23,7 @@ struct ShelfPane: View {
                                line: "Drag anything up to the island to keep it close. Drag it back out, AirDrop it, or open it.")
                 } else {
                     Scrolling {
-                        LazyGridish(items: shelf.items, columns: 5) { item in FileTile(item: item) }
+                        LazyGridish(items: shelf.items, columns: 6) { item in FileTile(item: item) }
                     }
                 }
             }

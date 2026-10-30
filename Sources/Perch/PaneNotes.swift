@@ -90,7 +90,7 @@ struct NoteRow: View {
                     }
                     Text(Markdown.plain(note.title)).font(.ui(12, .medium)).foregroundStyle(selected ? Ink.text : Ink.text2).lineLimit(1)
                 }
-                Text(note.preview.isEmpty ? shortAge(Date().timeIntervalSince(note.updated)) : Markdown.plain(note.preview))
+                Text(note.preview.isEmpty ? shortAge(Date().timeIntervalSince(note.updated)) : Markdown.plainLines(note.text))
                     .font(.ui(10.5)).foregroundStyle(Ink.text3).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -205,9 +205,15 @@ enum Markdown {
     static func attributed(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
     }
+    /// Everything after the first line, without markdown marks.
+    static func plainLines(_ s: String) -> String {
+        s.components(separatedBy: "\n").dropFirst().map { plain($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { !$0.isEmpty }.joined(separator: "  ·  ")
+    }
+
     static func plain(_ s: String) -> String {
         var t = s
-        for p in ["# ", "## ", "- [ ] ", "- [x] ", "- "] where t.hasPrefix(p) { t = String(t.dropFirst(p.count)) }
+        for p in ["## ", "# ", "- [ ] ", "- [x] ", "- [X] ", "- ", "* "] where t.hasPrefix(p) { t = String(t.dropFirst(p.count)) }
         return t.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "__", with: "")
     }
 }

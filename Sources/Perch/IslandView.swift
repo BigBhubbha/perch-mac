@@ -38,10 +38,7 @@ struct IslandView: View {
                 .clipShape(shape)
             }
             .frame(width: size.width, height: size.height)
-            .onDrop(of: [.fileURL], isTargeted: Binding(get: { shelf.dropTargeted }, set: { shelf.dropTargeted = $0 })) { providers in
-                if model.tab != .shelf { model.tab = .shelf }
-                return shelf.accept(providers)
-            }
+            .modifier(ShelfDrop(shelf: shelf, model: model))
             .padding(.top, g.topOffset)
             Spacer(minLength: 0)
         }
@@ -49,6 +46,22 @@ struct IslandView: View {
         .animation(Motion.wing, value: model.wing)
         .environment(\.colorScheme, Ink.palette.isLight ? .light : .dark)
         .id(prefs.theme.rawValue + prefs.accentMode.rawValue)
+    }
+}
+
+/// Files dropped anywhere on the island land on the shelf. (Skipped in previews, which cannot draw it.)
+struct ShelfDrop: ViewModifier {
+    let shelf: ShelfStore
+    let model: IslandModel
+    func body(content: Content) -> some View {
+        if RenderMode.snapshot {
+            content
+        } else {
+            content.onDrop(of: [.fileURL], isTargeted: Binding(get: { shelf.dropTargeted }, set: { shelf.dropTargeted = $0 })) { providers in
+                if model.tab != .shelf { model.tab = .shelf }
+                return shelf.accept(providers)
+            }
+        }
     }
 }
 
@@ -254,6 +267,7 @@ struct OpenDeck: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 20)
             .frame(height: IslandModel.bodyHeight)
+            .clipped()
             .transition(.opacity)
             .id(model.tab)
 
@@ -376,7 +390,7 @@ struct ControlButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(prominent ? Ink.onAccent : (tint ?? Ink.text))
+                .foregroundStyle(prominent ? (tint == nil || tint == Ink.text ? Ink.pill : Ink.onAccent) : (tint ?? Ink.text))
                 .frame(width: prominent ? 44 : 30, height: prominent ? 44 : 30)
                 .background(Circle().fill(prominent ? (tint ?? Ink.text).opacity(hover ? 1 : 0.92) : Ink.text.opacity(hover ? 0.08 : 0)))
                 .contentShape(Circle())
@@ -535,7 +549,7 @@ struct Scrolling<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         if RenderMode.snapshot {
-            content.frame(maxHeight: .infinity, alignment: .top)
+            content.frame(maxHeight: .infinity, alignment: .top).clipped()
         } else {
             ScrollView(axis, showsIndicators: false) { content }
         }

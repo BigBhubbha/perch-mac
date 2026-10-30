@@ -175,17 +175,17 @@ private struct LyricsColumn: View {
                     let at = track.elapsed(at: ctx.date) ?? 0
                     let i = music.lyricIndex(at: at) ?? -1
                     VStack(alignment: .leading, spacing: 7) {
-                        ForEach(max(0, i - 1)...min(music.lyrics.count - 1, max(0, i) + 3), id: \.self) { j in
+                        ForEach(max(0, i - 1)...min(music.lyrics.count - 1, max(0, i) + 2), id: \.self) { j in
                             let line = music.lyrics[j].text
                             Text(line.isEmpty ? "♪" : line)
                                 .font(.ui(j == i ? 15 : 13, j == i ? .bold : .semibold))
                                 .foregroundStyle(j == i ? Ink.text : Ink.text.opacity(j < i ? 0.22 : 0.38))
                                 .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
                                 .onTapGesture { music.seek(to: music.lyrics[j].time) }
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .clipped()
                     .animation(.spring(response: 0.45, dampingFraction: 0.85), value: i)
                 }
             case .loading:

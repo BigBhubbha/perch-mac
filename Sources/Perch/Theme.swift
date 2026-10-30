@@ -196,8 +196,10 @@ enum NameColor {
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
         let letters = words.prefix(2).compactMap { $0.first.map(String.init) }
-        let roman = words.last.map(String.init).flatMap { ["II", "III", "IV", "V"].contains($0) ? $0 : nil }
-        if let first = words.first?.first, let roman { return String(first) + roman }
+        let numerals = ["II": "2", "III": "3", "IV": "4", "V": "5", "VI": "6"]
+        if words.count > 1, let first = words.first?.first, let n = words.last.flatMap({ numerals[String($0)] }) {
+            return String(first).uppercased() + n
+        }
         return letters.joined().uppercased()
     }
 }

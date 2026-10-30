@@ -227,8 +227,9 @@ enum Snapshots {
         }, "fit", to: dir)
 
         for page in SettingsPage.allCases {
-            save(SettingsView(refit: {}, checkForUpdates: {}, autoUpdates: .constant(true), page: page)
-                    .frame(height: page == .extras || page == .mail || page == .look || page == .moments ? 760 : SettingsView.size.height)
+            let tall: Set<SettingsPage> = [.extras, .mail, .look, .island]
+            save(SettingsView(refit: {}, checkForUpdates: {}, autoUpdates: .constant(true),
+                              height: tall.contains(page) ? 780 : SettingsView.size.height, page: page)
                     .hub(hub, model), "settings-\(page.rawValue)", to: dir)
         }
         prefs.lastTab = IslandTab.today.rawValue

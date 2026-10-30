@@ -39,6 +39,7 @@ struct SettingsView: View {
     var refit: () -> Void
     var checkForUpdates: () -> Void
     var autoUpdates: Binding<Bool>
+    var height: CGFloat = SettingsView.size.height
     @State var page: SettingsPage = .island
 
     static let size = NSSize(width: 780, height: 600)
@@ -56,7 +57,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.size.width, height: height)
         .background(Ink.window)
         .environment(\.colorScheme, Ink.palette.isLight ? .light : .dark)
         .id(prefs.theme.rawValue + prefs.accentMode.rawValue)
@@ -535,20 +536,28 @@ struct PickerRow: View {
         HStack {
             Text(title).font(.ui(13)).foregroundStyle(Ink.text)
             Spacer()
-            Menu {
-                ForEach(options, id: \.0) { o in Button(o.1) { selection = o.0 } }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(options.first { $0.0 == selection }?.1 ?? "").font(.ui(12, .medium)).foregroundStyle(Ink.text)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Ink.text3)
-                }
-                .padding(.horizontal, 10).frame(height: 26)
-                .background(Capsule().fill(Ink.raised))
+            if RenderMode.snapshot {
+                label
+            } else {
+                Menu {
+                    ForEach(options, id: \.0) { o in Button(o.1) { selection = o.0 } }
+                } label: { label }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
+    }
+}
+
+extension PickerRow {
+    var label: some View {
+        HStack(spacing: 6) {
+            Text(options.first { $0.0 == selection }?.1 ?? "").font(.ui(12, .medium)).foregroundStyle(Ink.text)
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Ink.text3)
+        }
+        .padding(.horizontal, 10).frame(height: 26)
+        .background(Capsule().fill(Ink.raised))
     }
 }
 
