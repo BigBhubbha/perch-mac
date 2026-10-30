@@ -9,8 +9,7 @@ struct MusicPane: View {
 
     var body: some View {
         if let t = music.track {
-            ZStack {
-                Backdrop(image: music.artwork, accent: music.accent, shade: music.shade)
+            Group {
                 HStack(alignment: .center, spacing: 22) {
                     Artwork(image: music.artwork, accent: music.accent, radius: 20)
                         .frame(width: 168, height: 168)
@@ -56,6 +55,8 @@ struct MusicPane: View {
                 }
                 .padding(.vertical, 16)
                 .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { Backdrop(image: music.artwork, accent: music.accent, shade: music.shade) }
             }
         } else {
             VStack(spacing: 14) {
