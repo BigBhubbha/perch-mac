@@ -21,6 +21,16 @@ struct Agent: Decodable, Identifiable, Equatable {
     var finishedDate: Date? { finishedAt.map { Date(timeIntervalSince1970: $0 / 1000) } }
 }
 
+/// A finished run, kept on this Mac so the board has a memory past the Worker's 12 hours.
+struct AgentRun: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var task: String
+    var failed: Bool
+    var seconds: Double?
+    var at: Date
+}
+
 private struct BoardReply: Decodable {
     let agents: [Agent]
     let now: Double
@@ -36,7 +46,30 @@ final class AgentBoard: ObservableObject {
     /// Agents that finished in the last few seconds, for the bloom.
     @Published private(set) var justFinished: Set<String> = []
 
+    @Published private(set) var history: [AgentRun] = []
+
     var onFinish: (Agent) -> Void = { _ in }
+    private let historyKey = "agents.history"
+
+    init() {
+        if let d = UserDefaults.standard.data(forKey: historyKey), let v = try? JSONDecoder().decode([AgentRun].self, from: d) {
+            history = v
+        }
+    }
+
+    var finishedToday: Int { history.filter { Calendar.current.isDateInToday($0.at) && !$0.failed }.count }
+
+    private func remember(_ a: Agent) {
+        let secs: Double? = {
+            guard let s = a.startedAt, let f = a.finishedAt ?? Optional(a.updatedAt) else { return nil }
+            return max(0, (f - s) / 1000)
+        }()
+        history.insert(AgentRun(name: a.name, task: a.task ?? a.note ?? "", failed: a.status == .failed, seconds: secs, at: Date()), at: 0)
+        if history.count > 40 { history.removeLast(history.count - 40) }
+        if let d = try? JSONEncoder().encode(history) { UserDefaults.standard.set(d, forKey: historyKey) }
+    }
+
+    func clearHistory() { history.removeAll(); UserDefaults.standard.removeObject(forKey: historyKey) }
 
     private let prefs = Prefs.shared
     private var timer: Timer?
@@ -124,6 +157,7 @@ final class AgentBoard: ObservableObject {
             let wasWorking = before.map { !$0.done || $0.run < run } ?? true
             if wasWorking {
                 justFinished.insert(a.id)
+                remember(a)
                 onFinish(a)
                 let id = a.id
                 Task { @MainActor [weak self] in
@@ -135,7 +169,8 @@ final class AgentBoard: ObservableObject {
     }
 
     /// Preview renderer only.
-    func setSample(_ list: [Agent], finished: Set<String> = []) {
+    func setSample(_ list: [Agent], finished: Set<String> = [], history: [AgentRun] = []) {
+        self.history = history
         agents = list; link = .connected; lastSync = Date(); justFinished = finished
     }
 }

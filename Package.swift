@@ -20,6 +20,14 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("EventKit"),
+                .linkedFramework("IOBluetooth"),
+                .linkedFramework("CoreBluetooth"),
+                .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreMediaIO"),
+                .linkedFramework("IOKit"),
+                .linkedFramework("Network"),
+                .linkedFramework("ApplicationServices"),
             ]
         )
     ]

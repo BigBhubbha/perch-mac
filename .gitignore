@@ -14,3 +14,4 @@ cloudflare/.dev.vars
 *.key
 previews/*.png
 !previews/app-icon.png
+previews-v2/

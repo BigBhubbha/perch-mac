@@ -1,120 +1,232 @@
-// What the island looks like: resting wings, the finish bloom, and the open panel with its four tabs.
+// What the island looks like: still wings at rest, short moments, and the open deck with its tabs.
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct IslandView: View {
-    @ObservedObject var model: IslandModel
-    @ObservedObject var prefs: Prefs
-    @ObservedObject var music: NowPlayingCenter
-    @ObservedObject var notes: NotesStore
-    @ObservedObject var board: AgentBoard
+    @EnvironmentObject var model: IslandModel
+    @EnvironmentObject var prefs: Prefs
+    @EnvironmentObject var shelf: ShelfStore
 
     var body: some View {
         let g = prefs.geometry
-        let wings = prefs.showWings && model.wingsOn
+        let wings = prefs.showWings && model.wing != nil
         let size = model.size(g, wings: wings)
         let open = model.isOpen
-        let shape = IslandShape(radius: open ? 32 : g.cornerRadius, ear: g.topOffset > 0 ? 0 : (open ? 12 : 6))
+        let shape = IslandShape(radius: open ? 34 : g.cornerRadius, ear: g.topOffset > 0 ? 0 : (open ? 14 : 6))
 
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 shape
                     .fill(Ink.pill)
-                    .shadow(color: .black.opacity(open ? 0.5 : 0), radius: open ? 24 : 0, x: 0, y: open ? 12 : 0)
+                    .overlay(shape.stroke(Ink.palette.isLight ? Color.black.opacity(0.06) : Color.white.opacity(open ? 0.05 : 0), lineWidth: 1))
+                    .shadow(color: .black.opacity(open ? 0.55 : 0), radius: open ? 28 : 0, x: 0, y: open ? 14 : 0)
 
                 Group {
                     switch model.state {
                     case .resting:
-                        if wings { RestingWings(g: g, music: music, board: board).transition(.opacity) }
-                    case .bloom(let info):
-                        BloomWings(g: g, info: info).transition(.opacity)
+                        if wings, let w = model.wing { RestingWings(g: g, kind: w).transition(.opacity) }
+                    case .moment(let m):
+                        MomentWings(g: g, moment: m).transition(.opacity)
                     case .open:
-                        OpenIsland(g: g, model: model, music: music, notes: notes, board: board)
-                            .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.24).delay(0.07)),
+                        OpenDeck(g: g)
+                            .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.26).delay(0.08)),
                                                     removal: .opacity.animation(.easeIn(duration: 0.08))))
                     }
                 }
                 .frame(width: size.width, height: size.height, alignment: .top)
-                .clipped()
+                .clipShape(shape)
             }
             .frame(width: size.width, height: size.height)
+            .onDrop(of: [.fileURL], isTargeted: Binding(get: { shelf.dropTargeted }, set: { shelf.dropTargeted = $0 })) { providers in
+                if model.tab != .shelf { model.tab = .shelf }
+                return shelf.accept(providers)
+            }
             .padding(.top, g.topOffset)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(Motion.wing, value: wings)
-        .environment(\.colorScheme, .dark)
+        .animation(Motion.wing, value: model.wing)
+        .environment(\.colorScheme, Ink.palette.isLight ? .light : .dark)
+        .id(prefs.theme.rawValue + prefs.accentMode.rawValue)
     }
 }
 
-// MARK: Resting and bloom
+// MARK: Resting wings
 
 struct RestingWings: View {
     let g: PillGeometry
-    @ObservedObject var music: NowPlayingCenter
-    @ObservedObject var board: AgentBoard
+    let kind: WingKind
+    @EnvironmentObject var music: NowPlayingCenter
+    @EnvironmentObject var board: AgentBoard
+    @EnvironmentObject var timers: TimerCenter
+    @EnvironmentObject var calendar: CalendarCenter
+    @EnvironmentObject var signals: SignalCenter
 
     var body: some View {
         HStack(spacing: 0) {
-            ZStack {
-                if music.track != nil {
-                    ArtThumb(image: music.artwork, accent: music.accent, side: 22)
-                } else if !board.working.isEmpty {
-                    Image(systemName: "sparkle").font(.system(size: 11, weight: .semibold)).foregroundStyle(Ink.lime.opacity(0.9))
-                }
-            }
-            .frame(width: IslandModel.wing)
+            left.frame(width: kind.width)
             Color.clear.frame(width: g.width)
-            ZStack {
-                if !board.working.isEmpty {
-                    StillDots(count: board.working.count)
-                } else if music.track != nil {
-                    StillBars(color: music.accent)
-                }
-            }
-            .frame(width: IslandModel.wing)
+            right.frame(width: kind.width)
         }
         .frame(height: g.height)
     }
+
+    @ViewBuilder private var left: some View {
+        switch kind {
+        case .privacy(let camera):
+            Image(systemName: camera ? "video.fill" : "mic.fill").font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(camera ? Ink.mint : Ink.amber)
+        case .timer:
+            ProgressRing(progress: timers.progress, color: timers.current?.kind == .rest ? Ink.sky : Ink.accent, line: 2.6)
+                .frame(width: 16, height: 16)
+        case .event:
+            RoundedRectangle(cornerRadius: 2).fill(calendar.next?.calendarColor ?? Ink.accent).frame(width: 4, height: 18)
+        case .agents:
+            Image(systemName: "sparkle").font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.accent)
+        case .music:
+            ArtThumb(image: music.artwork, accent: music.accent, side: 22)
+        case .charging:
+            Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(Ink.mint)
+        case .mail:
+            Image(systemName: "envelope.fill").font(.system(size: 11)).foregroundStyle(Ink.accent)
+        }
+    }
+
+    @ViewBuilder private var right: some View {
+        switch kind {
+        case .privacy(let camera):
+            Circle().fill(camera ? Ink.mint : Ink.amber).frame(width: 6, height: 6)
+        case .timer:
+            Text(clock(timers.remaining)).font(.round(12.5, .semibold)).monospacedDigit()
+                .foregroundStyle(timers.isPaused ? Ink.text3 : Ink.text)
+        case .event:
+            Text(calendar.next.map { untilText($0.start.timeIntervalSinceNow).replacingOccurrences(of: "in ", with: "") } ?? "")
+                .font(.round(12.5, .semibold)).monospacedDigit().foregroundStyle(Ink.text)
+        case .agents:
+            StillDots(count: board.working.count)
+        case .music:
+            StillBars(color: music.accent)
+        case .charging:
+            Text("\(signals.battery.percent)%").font(.round(12, .semibold)).monospacedDigit().foregroundStyle(Ink.text)
+        case .mail:
+            EmptyView()
+        }
+    }
 }
 
-struct BloomWings: View {
+// MARK: Moments
+
+struct MomentWings: View {
     let g: PillGeometry
-    let info: BloomInfo
+    let moment: Moment
 
     var body: some View {
-        let color = info.success ? Ink.lime : Ink.coral
+        let w = IslandModel.momentWidth(moment)
         HStack(spacing: 0) {
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
-                Text(info.success ? "Done" : "Stopped")
-                    .font(.round(12, .semibold))
-                    .foregroundStyle(color)
-                BloomBurst(color: color).frame(width: 26, height: 26)
+                leftContent
             }
             .padding(.trailing, 14)
-            .frame(width: IslandModel.bloomWing)
+            .frame(width: w)
             Color.clear.frame(width: g.width)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(info.name).font(.ui(12.5, .semibold)).foregroundStyle(Ink.text).lineLimit(1)
-                Text(info.line ?? (info.success ? "finished its job" : "ran into trouble"))
-                    .font(.ui(10.5)).foregroundStyle(Ink.text2).lineLimit(1)
-            }
-            .padding(.leading, 14)
-            .frame(width: IslandModel.bloomWing, alignment: .leading)
+            rightContent
+                .padding(.leading, 14)
+                .padding(.trailing, 12)
+                .frame(width: w, alignment: .leading)
         }
         .frame(height: g.height)
     }
+
+    @ViewBuilder private var leftContent: some View {
+        switch moment.kind {
+        case .agent:
+            Text(moment.tint == Ink.coral ? "Stopped" : "Done").font(.round(12, .semibold)).foregroundStyle(moment.tint)
+            BloomBurst(color: moment.tint).frame(width: 26, height: 26)
+        case .volume, .brightness:
+            Image(systemName: moment.symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.text)
+                .contentTransition(.symbolEffect(.replace))
+        case .charging:
+            Text(moment.title).font(.round(12.5, .semibold)).monospacedDigit().foregroundStyle(moment.tint)
+            BatteryGlyph(level: moment.level ?? 0, tint: moment.tint, charging: moment.symbol == "bolt.fill")
+        default:
+            Image(systemName: moment.symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(moment.tint)
+                .symbolRenderingMode(.hierarchical)
+        }
+    }
+
+    @ViewBuilder private var rightContent: some View {
+        switch moment.kind {
+        case .volume, .brightness:
+            HStack(spacing: 8) {
+                LevelBar(level: moment.level ?? 0, tint: moment.tint)
+                Text(moment.title).font(.round(11.5, .semibold)).monospacedDigit().foregroundStyle(Ink.text2)
+                    .frame(width: 30, alignment: .trailing)
+            }
+        case .charging:
+            Text(moment.detail ?? "").font(.ui(12, .semibold)).foregroundStyle(Ink.text).lineLimit(1)
+        default:
+            VStack(alignment: .leading, spacing: 1) {
+                Text(moment.title).font(.ui(12.5, .semibold)).foregroundStyle(Ink.text).lineLimit(1)
+                if let d = moment.detail {
+                    Text(d).font(.ui(10.5)).foregroundStyle(Ink.text2).lineLimit(1)
+                }
+            }
+        }
+    }
 }
 
-// MARK: Open island
+struct LevelBar: View {
+    let level: Double
+    let tint: Color
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Ink.raisedHover)
+                Capsule().fill(tint).frame(width: max(5, geo.size.width * CGFloat(min(max(level, 0), 1))))
+            }
+        }
+        .frame(height: 5)
+        .animation(Motion.snap, value: level)
+    }
+}
 
-struct OpenIsland: View {
+struct BatteryGlyph: View {
+    let level: Double
+    let tint: Color
+    var charging: Bool
+    @State private var shown: Double = 0
+    var body: some View {
+        HStack(spacing: 1.5) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Ink.text3, lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(tint)
+                    .frame(width: max(3, 24 * CGFloat(RenderMode.snapshot ? level : shown)))
+                    .padding(2)
+                if charging {
+                    Image(systemName: "bolt.fill").font(.system(size: 7.5, weight: .black)).foregroundStyle(Ink.pill)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(width: 30, height: 14)
+            RoundedRectangle(cornerRadius: 1).fill(Ink.text3).frame(width: 2, height: 5)
+        }
+        .onAppear { withAnimation(.easeOut(duration: 1.2).delay(0.15)) { shown = level } }
+    }
+}
+
+// MARK: The open deck
+
+struct OpenDeck: View {
     let g: PillGeometry
-    @ObservedObject var model: IslandModel
-    @ObservedObject var music: NowPlayingCenter
-    @ObservedObject var notes: NotesStore
-    @ObservedObject var board: AgentBoard
+    @EnvironmentObject var model: IslandModel
+    @EnvironmentObject var board: AgentBoard
+    @EnvironmentObject var gmail: GmailCenter
+    @EnvironmentObject var signals: SignalCenter
+    @EnvironmentObject var weather: WeatherCenter
+    @EnvironmentObject var prefs: Prefs
+    @EnvironmentObject var shelf: ShelfStore
     @Namespace private var tabSpace
 
     var body: some View {
@@ -122,47 +234,61 @@ struct OpenIsland: View {
             // The top band sits beside the camera cover, so nothing important goes in the middle.
             HStack(spacing: 0) {
                 tabBar
-                Spacer(minLength: g.width + 28)
+                Spacer(minLength: g.width + 24)
                 headerRight
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 18)
             .frame(height: g.height)
 
             ZStack {
                 switch model.tab {
-                case .playing: PlayingPane(music: music)
-                case .notes: NotesPane(notes: notes)
-                case .agents: AgentsPane(board: board)
+                case .today: TodayPane()
+                case .music: MusicPane()
+                case .notes: NotesPane()
+                case .agents: AgentsPane()
+                case .shelf: ShelfPane()
                 case .mail: MailPane()
+                case .launch: LaunchPane()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
             .frame(height: IslandModel.bodyHeight)
+            .transition(.opacity)
+            .id(model.tab)
 
             footer.frame(height: IslandModel.footerHeight)
+        }
+        .overlay {
+            if shelf.dropTargeted {
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .strokeBorder(Ink.accent.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                    .padding(8)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
     private var tabBar: some View {
-        HStack(spacing: 2) {
-            ForEach(IslandTab.allCases) { t in
+        HStack(spacing: 1) {
+            ForEach(model.visibleTabs) { t in
                 let active = model.tab == t
                 Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { model.tab = t }
+                    withAnimation(Motion.tab) { model.tab = t }
+                    if prefs.haptics { Haptics.tick() }
                 } label: {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: t.symbol)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(active ? Ink.text : Ink.text3)
-                            .frame(width: 36, height: 28)
+                            .frame(width: 32, height: 28)
                             .background {
                                 if active {
                                     Capsule().fill(Ink.raisedHover).matchedGeometryEffect(id: "tab", in: tabSpace)
                                 }
                             }
-                        if t == .agents && !board.justFinished.isEmpty {
-                            Circle().fill(Ink.lime).frame(width: 6, height: 6).offset(x: -6, y: 4)
+                        if badge(t) {
+                            Circle().fill(Ink.accent).frame(width: 5, height: 5).offset(x: -6, y: 5)
                         }
                     }
                     .contentShape(Rectangle())
@@ -173,14 +299,38 @@ struct OpenIsland: View {
         }
     }
 
+    private func badge(_ t: IslandTab) -> Bool {
+        switch t {
+        case .agents: return !board.justFinished.isEmpty
+        case .mail: return gmail.unreadCount > 0
+        default: return false
+        }
+    }
+
     private var headerRight: some View {
         HStack(spacing: 12) {
-            if !board.working.isEmpty { StillDots(count: board.working.count) }
+            if signals.cameraOn || signals.micOn {
+                Circle().fill(signals.cameraOn ? Ink.mint : Ink.amber).frame(width: 6, height: 6)
+                    .help(signals.cameraOn ? "Camera in use" : "Microphone in use")
+            }
+            if let w = weather.now {
+                HStack(spacing: 4) {
+                    Image(systemName: w.symbol).symbolRenderingMode(.multicolor).font(.system(size: 11))
+                    Text("\(Int(w.temp.rounded()))°").font(.round(12.5, .medium)).monospacedDigit().foregroundStyle(Ink.text2)
+                }
+            }
+            if signals.battery.hasBattery {
+                HStack(spacing: 3) {
+                    if signals.battery.charging { Image(systemName: "bolt.fill").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Ink.mint) }
+                    Text("\(signals.battery.percent)%").font(.round(12, .medium)).monospacedDigit()
+                        .foregroundStyle(signals.battery.percent <= 20 && !signals.battery.pluggedIn ? Ink.coral : Ink.text2)
+                }
+            }
             TimelineView(.everyMinute) { ctx in
                 Text(ctx.date, format: .dateTime.hour().minute())
-                    .font(.round(13, .medium))
+                    .font(.round(13, .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(Ink.text2)
+                    .foregroundStyle(Ink.text)
             }
         }
     }
@@ -189,7 +339,7 @@ struct OpenIsland: View {
         HStack(spacing: 16) {
             Text(model.tab.title).eyebrow()
             Spacer()
-            FooterButton(title: "Check for updates", action: model.onCheckForUpdates)
+            FooterButton(title: "Updates", action: model.onCheckForUpdates)
             FooterButton(title: "Refit", action: model.onRecalibrate)
             FooterButton(title: "Settings", action: model.onOpenSettings)
             FooterButton(title: "Quit", action: model.onQuit)
@@ -199,87 +349,18 @@ struct OpenIsland: View {
     }
 }
 
+// MARK: Shared pieces
+
 struct FooterButton: View {
     let title: String
     let action: () -> Void
     @State private var hover = false
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.ui(11, .medium))
-                .foregroundStyle(hover ? Ink.text : Ink.text3)
+            Text(title).font(.ui(11, .medium)).foregroundStyle(hover ? Ink.text : Ink.text3)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-    }
-}
-
-// MARK: Playing
-
-struct PlayingPane: View {
-    @ObservedObject var music: NowPlayingCenter
-
-    var body: some View {
-        if let t = music.track {
-            HStack(alignment: .center, spacing: 22) {
-                Artwork(image: music.artwork, accent: music.accent).frame(width: 118, height: 118)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(t.appName).eyebrow(music.accent.opacity(0.95))
-                    Text(t.title)
-                        .font(.ui(18, .semibold))
-                        .foregroundStyle(Ink.text)
-                        .lineLimit(1)
-                        .padding(.top, 5)
-                    Text(t.artist.isEmpty ? t.album : t.artist)
-                        .font(.ui(13))
-                        .foregroundStyle(Ink.text2)
-                        .lineLimit(1)
-                        .padding(.top, 1)
-                    Spacer(minLength: 8)
-                    if let d = t.duration, d > 0 {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            ProgressRow(elapsed: t.elapsed(at: ctx.date) ?? 0, duration: d, accent: music.accent)
-                        }
-                    }
-                    HStack(spacing: 30) {
-                        ControlButton(symbol: "backward.fill", size: 15) { music.send(.previous) }
-                        ControlButton(symbol: t.playing ? "pause.fill" : "play.fill", size: 21, prominent: true) { music.send(.toggle) }
-                        ControlButton(symbol: "forward.fill", size: 15) { music.send(.next) }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .padding(.vertical, 18)
-        } else {
-            EmptyState(drawing: AnyView(RecordDrawing()),
-                       title: "Nothing playing",
-                       line: music.source == .appleScript
-                           ? "Start something in Spotify or Music and it shows up here."
-                           : "Play something anywhere and it shows up here.")
-        }
-    }
-}
-
-struct ProgressRow: View {
-    let elapsed: Double
-    let duration: Double
-    let accent: Color
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(clock(elapsed)).font(.ui(10.5, .medium)).monospacedDigit().foregroundStyle(Ink.text3)
-                .frame(width: 34, alignment: .leading)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
-                    Capsule().fill(accent).frame(width: max(3, geo.size.width * CGFloat(min(1, elapsed / duration))))
-                }
-            }
-            .frame(height: 3)
-            Text("-" + clock(max(0, duration - elapsed))).font(.ui(10.5, .medium)).monospacedDigit().foregroundStyle(Ink.text3)
-                .frame(width: 38, alignment: .trailing)
-        }
     }
 }
 
@@ -287,6 +368,7 @@ struct ControlButton: View {
     let symbol: String
     var size: CGFloat
     var prominent = false
+    var tint: Color? = nil
     let action: () -> Void
     @State private var hover = false
 
@@ -294,9 +376,9 @@ struct ControlButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(Ink.text)
-                .frame(width: prominent ? 42 : 32, height: prominent ? 42 : 32)
-                .background(Circle().fill(Color.white.opacity(prominent ? (hover ? 0.16 : 0.10) : (hover ? 0.08 : 0))))
+                .foregroundStyle(prominent ? Ink.onAccent : (tint ?? Ink.text))
+                .frame(width: prominent ? 44 : 30, height: prominent ? 44 : 30)
+                .background(Circle().fill(prominent ? (tint ?? Ink.text).opacity(hover ? 1 : 0.92) : Ink.text.opacity(hover ? 0.08 : 0)))
                 .contentShape(Circle())
         }
         .buttonStyle(PressStyle())
@@ -308,16 +390,62 @@ struct ControlButton: View {
 struct PressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+/// A rounded pill button. `filled` uses the accent.
+struct Chip: View {
+    let title: String
+    var symbol: String? = nil
+    var filled = false
+    var tint: Color? = nil
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)) }
+                Text(title).font(.ui(11.5, .semibold)).lineLimit(1)
+            }
+            .foregroundStyle(filled ? Ink.onAccent : (tint ?? Ink.text))
+            .padding(.horizontal, 11).frame(height: 26)
+            .background(Capsule().fill(filled ? (tint ?? Ink.accent) : (hover ? Ink.raisedHover : Ink.raised)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { hover = $0 }
+    }
+}
+
+struct IconButton: View {
+    let symbol: String
+    var on = false
+    var help: String = ""
+    var size: CGFloat = 11
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size, weight: .semibold))
+                .foregroundStyle(on ? Ink.accent : (hover ? Ink.text : Ink.text3))
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(hover ? Ink.raised : .clear))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(help)
     }
 }
 
 struct Artwork: View {
     let image: NSImage?
     let accent: Color
+    var radius: CGFloat = 18
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         ZStack {
             if let image {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
@@ -328,7 +456,7 @@ struct Artwork: View {
         }
         .clipShape(shape)
         .overlay(shape.stroke(Color.white.opacity(0.08), lineWidth: 1))
-        .background(shape.fill(accent.opacity(0.42)).blur(radius: 22).offset(y: 8).scaleEffect(0.9))
+        .background(shape.fill(accent.opacity(0.45)).blur(radius: 24).offset(y: 10).scaleEffect(0.9))
     }
 }
 
@@ -351,35 +479,32 @@ struct ArtThumb: View {
     }
 }
 
-/// Three bars that breathe while music plays. Driven at 12 frames a second to stay light on the battery.
-struct EqualizerBars: View {
+struct ProgressRing: View {
+    let progress: Double
     let color: Color
+    var line: CGFloat = 3
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 12.0)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: 2.5) {
-                ForEach(0..<4, id: \.self) { i in
-                    let speeds = [5.1, 7.3, 4.2, 6.4]
-                    let v = (sin(t * speeds[i] + Double(i) * 1.7) + 1) / 2
-                    Capsule().fill(color).frame(width: 2.6, height: 4 + 11 * v)
-                }
-            }
-            .frame(height: 16)
+        ZStack {
+            Circle().stroke(color.opacity(0.22), lineWidth: line)
+            Circle().trim(from: 0, to: CGFloat(min(max(progress, 0.001), 1)))
+                .stroke(color, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .rotationEffect(.degrees(-90))
         }
     }
 }
 
-struct RecordDrawing: View {
+/// Avatar for an agent or a mail sender: initials on a color of their own.
+struct Avatar: View {
+    let name: String
+    var side: CGFloat = 28
     var body: some View {
+        let c = NameColor.of(name)
         ZStack {
-            Circle().fill(Color.white.opacity(0.05))
-            ForEach(0..<4, id: \.self) { i in
-                Circle().stroke(Color.white.opacity(0.06), lineWidth: 1).padding(CGFloat(5 + i * 5))
-            }
-            Circle().fill(Ink.lime.opacity(0.85)).frame(width: 13, height: 13)
-            Circle().fill(Ink.pill).frame(width: 3, height: 3)
+            Circle().fill(c.opacity(0.18))
+            Circle().strokeBorder(c.opacity(0.45), lineWidth: 1)
+            Text(NameColor.initials(name)).font(.round(side * 0.38, .bold)).foregroundStyle(c)
         }
-        .frame(width: 58, height: 58)
+        .frame(width: side, height: side)
     }
 }
 
@@ -387,14 +512,18 @@ struct EmptyState: View {
     let drawing: AnyView
     let title: String
     let line: String
+    var action: (String, () -> Void)? = nil
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 22) {
             drawing
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.serif(19).italic()).foregroundStyle(Ink.text)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.serif(20).italic()).foregroundStyle(Ink.text)
                 Text(line).font(.ui(12)).foregroundStyle(Ink.text3).fixedSize(horizontal: false, vertical: true)
+                if let action {
+                    Chip(title: action.0, filled: true, action: action.1).padding(.top, 6)
+                }
             }
-            .frame(maxWidth: 300, alignment: .leading)
+            .frame(maxWidth: 330, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -402,269 +531,85 @@ struct EmptyState: View {
 
 /// A quiet vertical scroller. Preview renders skip the scroll view, which ImageRenderer cannot draw.
 struct Scrolling<Content: View>: View {
+    var axis: Axis.Set = .vertical
     @ViewBuilder var content: Content
     var body: some View {
         if RenderMode.snapshot {
             content.frame(maxHeight: .infinity, alignment: .top)
         } else {
-            ScrollView(.vertical, showsIndicators: false) { content }
+            ScrollView(axis, showsIndicators: false) { content }
         }
     }
 }
 
-// MARK: Notes
-
-struct NotesPane: View {
-    @ObservedObject var notes: NotesStore
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("\(notes.notes.count) \(notes.notes.count == 1 ? "note" : "notes")").eyebrow()
-                    Spacer()
-                    Button { notes.add() } label: {
-                        Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Ink.pill)
-                            .frame(width: 20, height: 20).background(Circle().fill(Ink.lime))
-                    }
-                    .buttonStyle(.plain)
-                    .help("New note")
-                }
-                Scrolling {
-                    VStack(spacing: 2) {
-                        ForEach(notes.sorted) { n in
-                            NoteRow(note: n, selected: notes.selected?.id == n.id) { notes.selectedID = n.id }
-                        }
-                    }
-                }
-            }
-            .frame(width: 184)
-
-            Rectangle().fill(Ink.hairline).frame(width: 1)
-
-            if let n = notes.selected {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 12) {
-                        Text(n.updated, format: .dateTime.weekday(.wide).hour().minute()).eyebrow()
-                        Spacer()
-                        IconToggle(symbol: n.pinned ? "pin.fill" : "pin", on: n.pinned, help: n.pinned ? "Unpin" : "Pin to the top") {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { notes.togglePin(n.id) }
-                        }
-                        IconToggle(symbol: "trash", on: false, help: "Delete") {
-                            withAnimation(.easeOut(duration: 0.2)) { notes.delete(n.id) }
-                        }
-                    }
-                    NoteEditor(note: n, notes: notes)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("A blank page").font(.serif(19).italic()).foregroundStyle(Ink.text)
-                    Text("Jot something down. Pin the ones you want at the top.").font(.ui(12)).foregroundStyle(Ink.text3)
-                    Button { notes.add() } label: {
-                        Text("Start a note").font(.ui(12, .semibold)).foregroundStyle(Ink.pill)
-                            .padding(.horizontal, 12).padding(.vertical, 6).background(Capsule().fill(Ink.lime))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.vertical, 14)
-    }
-}
-
-struct NoteRow: View {
-    let note: Note
-    let selected: Bool
-    let action: () -> Void
+/// A slider drawn by hand so it matches the island and renders in previews.
+struct Scrubber: View {
+    let value: Double
+    var tint: Color
+    var height: CGFloat = 4
+    var onChange: (Double) -> Void
+    var onCommit: (Double) -> Void
+    @State private var dragging: Double?
     @State private var hover = false
+
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    if note.pinned {
-                        Image(systemName: "pin.fill").font(.system(size: 8, weight: .bold)).foregroundStyle(Ink.lime)
-                    }
-                    Text(note.title).font(.ui(12, .medium)).foregroundStyle(selected ? Ink.text : Ink.text2).lineLimit(1)
-                }
-                Text(note.preview.isEmpty ? shortAge(Date().timeIntervalSince(note.updated)) : note.preview)
-                    .font(.ui(10.5)).foregroundStyle(Ink.text3).lineLimit(1)
+        GeometryReader { geo in
+            let v = dragging ?? value
+            let w = geo.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Ink.text.opacity(0.13))
+                Capsule().fill(tint).frame(width: max(height, w * CGFloat(min(max(v, 0), 1))))
+                Circle().fill(Ink.text)
+                    .frame(width: hover || dragging != nil ? 11 : 0, height: hover || dragging != nil ? 11 : 0)
+                    .offset(x: w * CGFloat(min(max(v, 0), 1)) - 5.5)
+                    .shadow(color: .black.opacity(0.3), radius: 2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(selected ? Ink.raisedHover : (hover ? Ink.raised : .clear)))
+            .frame(height: (hover || dragging != nil) ? height + 2 : height)
+            .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    let x = min(max(g.location.x / max(w, 1), 0), 1)
+                    dragging = x; onChange(x)
+                }
+                .onEnded { g in
+                    let x = min(max(g.location.x / max(w, 1), 0), 1)
+                    dragging = nil; onCommit(x)
+                })
         }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
+        .frame(height: 14)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
+        .animation(.easeOut(duration: 0.15), value: hover)
     }
 }
 
-struct NoteEditor: View {
-    let note: Note
-    @ObservedObject var notes: NotesStore
+/// A text field that turns into plain text in previews.
+struct InkField: View {
+    let placeholder: String
+    @Binding var text: String
+    var serif = false
+    var onSubmit: () -> Void = {}
     var body: some View {
-        if RenderMode.snapshot {
-            Text(note.text).font(.serif(15)).foregroundStyle(Ink.text).lineSpacing(3)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.leading, 5)
-        } else {
-            TextEditor(text: Binding(get: { notes.notes.first(where: { $0.id == note.id })?.text ?? "" },
-                                     set: { notes.update(note.id, text: $0) }))
-                .font(.serif(15))
-                .foregroundStyle(Ink.text)
-                .scrollContentBackground(.hidden)
-                .scrollIndicators(.never)
-                .background(Color.clear)
-                .tint(Ink.lime)
-                .lineSpacing(3)
-                .id(note.id)
-        }
-    }
-}
-
-struct IconToggle: View {
-    let symbol: String
-    let on: Bool
-    let help: String
-    let action: () -> Void
-    @State private var hover = false
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(on ? Ink.lime : (hover ? Ink.text : Ink.text3))
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .help(help)
-    }
-}
-
-// MARK: Agents
-
-struct AgentsPane: View {
-    @ObservedObject var board: AgentBoard
-
-    var body: some View {
-        switch board.link {
-        case .notSetUp:
-            EmptyState(drawing: AnyView(DotsDrawing(lit: false)), title: "No board connected",
-                       line: "This copy of Perch has no agent board key. Add one in Settings, under Agents.")
-        default:
-            if board.agents.isEmpty {
-                EmptyState(drawing: AnyView(DotsDrawing(lit: true)), title: "All quiet",
-                           line: linkLine ?? "When a Grok Bot starts a job its dot shows up here, and it blooms when the job is done.")
+        Group {
+            if RenderMode.snapshot {
+                Text(text.isEmpty ? placeholder : text)
+                    .font(serif ? .serif(13.5) : .ui(12.5))
+                    .foregroundStyle(text.isEmpty ? Ink.text3 : Ink.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(summary).eyebrow()
-                        Spacer()
-                        if let linkLine {
-                            Text(linkLine).font(.ui(10.5)).foregroundStyle(Ink.coral).lineLimit(1)
-                        }
-                    }
-                    Scrolling {
-                        VStack(spacing: 10) {
-                            ForEach(Array(stride(from: 0, to: board.agents.count, by: 2)), id: \.self) { i in
-                                HStack(alignment: .top, spacing: 10) {
-                                    card(board.agents[i])
-                                    if i + 1 < board.agents.count {
-                                        card(board.agents[i + 1])
-                                    } else {
-                                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 14)
+                TextField(placeholder, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(serif ? .serif(13.5) : .ui(12.5))
+                    .foregroundStyle(Ink.text)
+                    .onSubmit(onSubmit)
             }
         }
-    }
-
-    private func card(_ a: Agent) -> some View {
-        AgentCard(agent: a, blooming: board.justFinished.contains(a.id))
-    }
-
-    private var summary: String {
-        let w = board.working.count, d = board.finished.count
-        var parts: [String] = []
-        if w > 0 { parts.append("\(w) working") }
-        if d > 0 { parts.append("\(d) done") }
-        return parts.joined(separator: ", ")
-    }
-
-    private var linkLine: String? {
-        if case .failing(let why) = board.link { return why }
-        return nil
+        .padding(.horizontal, 12).frame(height: 32)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.raised))
     }
 }
 
-struct AgentCard: View {
-    let agent: Agent
-    let blooming: Bool
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            AgentDot(agent: agent, blooming: blooming).frame(width: 16, height: 16).padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(agent.name).font(.ui(12.5, .semibold)).foregroundStyle(Ink.text).lineLimit(1)
-                    Spacer(minLength: 6)
-                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        Text(age(at: ctx.date)).font(.ui(10.5, .medium)).monospacedDigit().foregroundStyle(Ink.text3)
-                    }
-                }
-                Text(agent.task ?? (agent.isWorking ? "Working" : "Finished"))
-                    .font(.ui(11.5)).foregroundStyle(Ink.text2).lineLimit(1)
-                if let n = agent.note {
-                    Text(n).font(.ui(10.5)).foregroundStyle(agent.status == .failed ? Ink.coral : Ink.lime.opacity(0.85)).lineLimit(1)
-                }
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(blooming ? Ink.lime.opacity(0.10) : Ink.raised))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(blooming ? Ink.lime.opacity(0.35) : .clear, lineWidth: 1))
-    }
-
-    private func age(at now: Date) -> String {
-        if agent.isWorking, let s = agent.startedDate { return shortAge(now.timeIntervalSince(s)) }
-        if let f = agent.finishedDate {
-            let a = shortAge(now.timeIntervalSince(f))
-            return a == "just now" ? a : a + " ago"
-        }
-        return ""
-    }
-}
-
-struct AgentDot: View {
-    let agent: Agent
-    let blooming: Bool
-    var body: some View {
-        switch agent.status {
-        case .started, .working:
-            if agent.quiet == true {
-                Circle().fill(Ink.quiet).frame(width: 8, height: 8)
-            } else {
-                PulseDot(color: Ink.lime, diameter: 8)
-            }
-        case .finished:
-            ZStack {
-                if blooming { BloomBurst(color: Ink.lime) }
-                Circle().fill(Ink.lime).frame(width: 8, height: 8)
-                Image(systemName: "checkmark").font(.system(size: 5, weight: .black)).foregroundStyle(Ink.pill)
-            }
-        case .failed:
-            Circle().fill(Ink.coral).frame(width: 8, height: 8)
-        }
-    }
-}
+// MARK: Dots and drawings
 
 /// A dot that breathes, with a faint ring drifting out of it.
 struct PulseDot: View {
@@ -693,7 +638,7 @@ struct BloomBurst: View {
     @State private var start = Date()
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { ctx in
-            let t = ctx.date.timeIntervalSince(start)
+            let t = RenderMode.snapshot ? 0.55 : ctx.date.timeIntervalSince(start)
             ZStack {
                 ForEach(0..<3, id: \.self) { i in
                     let local = (t - Double(i) * 0.22).truncatingRemainder(dividingBy: 1.8)
@@ -713,27 +658,13 @@ struct BloomBurst: View {
     }
 }
 
-struct MiniDots: View {
-    let count: Int
-    var body: some View {
-        HStack(spacing: -4) {
-            ForEach(0..<min(count, 4), id: \.self) { i in
-                PulseDot(color: Ink.lime, diameter: 5, phaseShift: Double(i) * 0.4)
-            }
-            if count > 4 {
-                Text("+\(count - 4)").font(.round(9.5, .bold)).foregroundStyle(Ink.lime).padding(.leading, 6)
-            }
-        }
-    }
-}
-
 /// The resting island never moves on its own: still dots and still bars, no breathing or bobbing.
 struct StillDots: View {
     let count: Int
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(0..<min(count, 4), id: \.self) { _ in Circle().fill(Ink.lime).frame(width: 5, height: 5) }
-            if count > 4 { Text("+\(count - 4)").font(.round(9.5, .bold)).foregroundStyle(Ink.lime) }
+            ForEach(0..<min(count, 3), id: \.self) { _ in Circle().fill(Ink.accent).frame(width: 5, height: 5) }
+            if count > 3 { Text("+\(count - 3)").font(.round(9.5, .bold)).foregroundStyle(Ink.accent) }
         }
     }
 }
@@ -755,7 +686,7 @@ struct DotsDrawing: View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<cells.count, id: \.self) { i in
                 Circle()
-                    .fill(lit ? Ink.lime.opacity(cells[i].2) : Color.white.opacity(0.14))
+                    .fill(lit ? Ink.accent.opacity(cells[i].2) : Ink.text.opacity(0.14))
                     .frame(width: 10, height: 10)
                     .offset(x: cells[i].0, y: cells[i].1)
             }
@@ -765,26 +696,43 @@ struct DotsDrawing: View {
     }
 }
 
-// MARK: Mail (v2)
-
-struct MailPane: View {
+struct RecordDrawing: View {
     var body: some View {
-        EmptyState(drawing: AnyView(EnvelopeDrawing()), title: "Gmail lands here next",
-                   line: "Version 2 brings your inbox in here, with quick replies and an unread count on the island.")
+        ZStack {
+            Circle().fill(Ink.text.opacity(0.05))
+            ForEach(0..<4, id: \.self) { i in
+                Circle().stroke(Ink.text.opacity(0.06), lineWidth: 1).padding(CGFloat(5 + i * 5))
+            }
+            Circle().fill(Ink.accent.opacity(0.85)).frame(width: 13, height: 13)
+            Circle().fill(Ink.pill).frame(width: 3, height: 3)
+        }
+        .frame(width: 58, height: 58)
     }
 }
 
 struct EnvelopeDrawing: View {
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.white.opacity(0.22), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Ink.text.opacity(0.22), lineWidth: 1.5)
                 .frame(width: 56, height: 40)
             Path { p in
                 p.move(to: CGPoint(x: 2, y: 3)); p.addLine(to: CGPoint(x: 28, y: 22)); p.addLine(to: CGPoint(x: 54, y: 3))
             }
-            .stroke(Color.white.opacity(0.22), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            .stroke(Ink.text.opacity(0.22), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             .frame(width: 56, height: 40)
-            Circle().fill(Ink.lime).frame(width: 12, height: 12).offset(x: 27, y: -19)
+            Circle().fill(Ink.accent).frame(width: 12, height: 12).offset(x: 27, y: -19)
+        }
+        .frame(width: 70, height: 58)
+    }
+}
+
+struct TrayDrawing: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Ink.text.opacity(0.22), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                .frame(width: 60, height: 46)
+            Image(systemName: "arrow.down").font(.system(size: 16, weight: .semibold)).foregroundStyle(Ink.accent)
         }
         .frame(width: 70, height: 58)
     }

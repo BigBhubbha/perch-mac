@@ -1,4 +1,4 @@
-// Wires Perch together: the island, music, notes, the agent board, fitting, settings and updates.
+// Wires Perch together: the island, every store behind it, moments, fitting, settings and updates.
 import AppKit
 import SwiftUI
 import Combine
@@ -6,10 +6,9 @@ import Combine
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prefs = Prefs.shared
-    private let music = NowPlayingCenter()
-    private let notes = NotesStore()
-    private let board = AgentBoard()
+    private let hub = Hub()
     private var island: IslandController!
+    private var bag = Set<AnyCancellable>()
     private let calibration = CalibrationController()
     private var settingsWindow: NSWindow?
     private var updater: Updater?
@@ -29,21 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updater = Updater()
         setUpMainMenu()
 
-        island = IslandController(music: music, notes: notes, board: board)
+        island = IslandController(hub: hub)
         island.model.onOpenSettings = { [weak self] in self?.island.close(); self?.openSettings() }
         island.model.onCheckForUpdates = { [weak self] in self?.island.close(); self?.updater?.checkForUpdates() }
         island.model.onRecalibrate = { [weak self] in self?.island.close(); self?.startCalibration() }
         island.model.onQuit = { NSApp.terminate(nil) }
         island.show()
-
-        board.onFinish = { [weak self] agent in
-            guard let self else { return }
-            let ok = agent.status == .finished
-            self.island.bloom(BloomInfo(name: agent.name, success: ok, line: agent.note))
-            if self.prefs.chimeOnFinish { Chime.play(success: ok) }
-        }
-        board.start()
-        music.start()
+        wireMoments()
+        startServices()
 
         // Finish launching first (so the Dock icon stops bouncing), then ask about moving.
         if !loadCheck && !Installer.isInApplications {
@@ -53,6 +45,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             startFirstRunIfNeeded()
+        }
+    }
+
+    private func wireMoments() {
+        hub.board.onFinish = { [weak self] agent in
+            guard let self else { return }
+            let ok = agent.status == .finished
+            self.island.flash(Moment(kind: .agent, symbol: "sparkle", title: agent.name,
+                                     detail: agent.note ?? (ok ? "finished its job" : "ran into trouble"),
+                                     tint: ok ? Ink.accent : Ink.coral, level: nil, duration: 3.6))
+            if self.prefs.chimeOnFinish { Chime.play(success: ok) }
+        }
+        hub.timers.onFinish = { [weak self] r in
+            guard let self else { return }
+            let title: String
+            let detail: String
+            switch r.kind {
+            case .countdown: title = "Time's up"; detail = r.label
+            case .focus: title = "Focus done"; detail = "Take \(Int(self.prefs.pomodoroBreak)) minutes"
+            case .rest: title = "Break's over"; detail = "Round \(r.round + 1)"
+            }
+            self.island.flash(Moment(kind: .timer, symbol: "timer", title: title, detail: detail, tint: Ink.accent, level: nil, duration: 5))
+            Chime.play(success: true)
+            if self.prefs.haptics { Haptics.level() }
+        }
+        hub.signals.onMoment = { [weak self] m in self?.island.flash(m) }
+        hub.calendar.onSoon = { [weak self] e in
+            self?.island.flash(Moment(kind: .event, symbol: "calendar", title: e.title, detail: untilText(e.start.timeIntervalSinceNow).capitalizedFirst,
+                                      tint: e.calendarColor, level: nil, duration: 4.5))
+        }
+        hub.gmail.onNewMail = { [weak self] m in
+            self?.island.flash(Moment(kind: .mail, symbol: "envelope.fill", title: m.from, detail: m.subject, tint: Ink.accent, level: nil, duration: 4))
+        }
+        MediaKeyTap.shared.onBrightness = { [weak self] v in
+            let sym = v < 0.34 ? "sun.min.fill" : "sun.max.fill"
+            self?.island.flash(Moment(kind: .brightness, symbol: sym, title: "\(Int((v * 100).rounded()))", detail: nil,
+                                      tint: Ink.amber, level: Double(v), duration: 1.6))
+        }
+        Hotkey.shared.action = { [weak self] in self?.island.toggle() }
+    }
+
+    private func startServices() {
+        hub.board.start()
+        hub.music.start()
+        hub.signals.start()
+        hub.weather.start()
+        hub.calendar.start()
+        hub.gmail.start()
+        if prefs.clipboardOn { hub.shelf.startClipboard() }
+        if prefs.replaceSystemHUD && MediaKeyTap.trusted { MediaKeyTap.shared.start() }
+        prefs.$shortcut.removeDuplicates().sink { Hotkey.shared.apply($0) }.store(in: &bag)
+        prefs.$clipboardOn.removeDuplicates().dropFirst().sink { [weak self] on in
+            MainActor.assumeIsolated { on ? self?.hub.shelf.startClipboard() : self?.hub.shelf.stopClipboard() }
+        }.store(in: &bag)
+        prefs.$calendarOn.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.hub.calendar.start() }
+        }.store(in: &bag)
+        prefs.$theme.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.settingsWindow?.backgroundColor = NSColor(Ink.window) }
+        }.store(in: &bag)
+        // Turning on Accessibility happens in System Settings; start the key tap when it lands.
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                if Prefs.shared.replaceSystemHUD && !MediaKeyTap.shared.isRunning && MediaKeyTap.trusted { MediaKeyTap.shared.start() }
+            }
         }
     }
 
@@ -67,9 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        music.stop()
+        hub.music.stop()
         AdapterStream.killAll()
-        notes.saveNow()
+        hub.notes.saveNow()
+        MediaKeyTap.shared.stop()
     }
 
     /// `kill` and logout send SIGTERM, which skips applicationWillTerminate. Clean up the helper anyway.
@@ -164,10 +222,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             let autoBinding = Binding<Bool>(get: { [weak self] in self?.updater?.automaticallyChecks ?? true },
                                             set: { [weak self] in self?.updater?.automaticallyChecks = $0 })
-            let view = SettingsView(prefs: prefs, board: board, music: music,
-                                    refit: { [weak self] in self?.settingsWindow?.orderOut(nil); self?.startCalibration() },
+            let view = SettingsView(refit: { [weak self] in self?.settingsWindow?.orderOut(nil); self?.startCalibration() },
                                     checkForUpdates: { [weak self] in self?.updater?.checkForUpdates() },
                                     autoUpdates: autoBinding)
+                .hub(hub, island.model)
             let w = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsView.size),
                              styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
@@ -176,8 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.titleVisibility = .hidden
             w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            w.appearance = NSAppearance(named: .darkAqua)
-            w.backgroundColor = NSColor(red: 0.067, green: 0.067, blue: 0.075, alpha: 1)
+            w.backgroundColor = NSColor(Ink.window)
             w.contentView = NSHostingView(rootView: view)
             w.center()
             settingsWindow = w

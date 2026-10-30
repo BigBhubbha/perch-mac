@@ -1,72 +1,131 @@
-// The island: a black pill hiding behind the camera cover. Hover it and it grows into the full panel.
+// The island: a black pill hiding behind the camera cover. Quiet wings at rest, short moments when
+// something happens, and a full deck when you reach for it.
 import AppKit
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 enum IslandTab: String, CaseIterable, Identifiable {
-    case playing, notes, agents, mail
+    case today, music, notes, agents, shelf, mail, launch
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .playing: return "Playing"
+        case .today: return "Today"
+        case .music: return "Music"
         case .notes: return "Notes"
         case .agents: return "Agents"
+        case .shelf: return "Shelf"
         case .mail: return "Mail"
+        case .launch: return "Launch"
         }
     }
     var symbol: String {
         switch self {
-        case .playing: return "music.note"
-        case .notes: return "square.and.pencil"
-        case .agents: return "circle.grid.2x2"
+        case .today: return "square.grid.2x2"
+        case .music: return "music.note"
+        case .notes: return "text.alignleft"
+        case .agents: return "sparkles"
+        case .shelf: return "tray"
         case .mail: return "envelope"
+        case .launch: return "command"
         }
     }
 }
 
-struct BloomInfo: Equatable {
-    let name: String
-    let success: Bool
-    let line: String?
+/// What the wings show while resting. Ordered by how much it matters right now.
+enum WingKind: Equatable {
+    case privacy(camera: Bool)
+    case timer
+    case event
+    case agents
+    case music
+    case charging
+    case mail
+
+    var width: CGFloat {
+        switch self {
+        case .timer, .event, .charging: return 60
+        case .privacy, .agents, .music, .mail: return 44
+        }
+    }
+}
+
+/// Every store the island draws from, handed to the views as environment objects.
+@MainActor
+final class Hub {
+    let music = NowPlayingCenter()
+    let notes: NotesStore
+    let tasks = TaskStore()
+    let board = AgentBoard()
+    let signals = SignalCenter()
+    let timers = TimerCenter()
+    let calendar = CalendarCenter()
+    let weather = WeatherCenter()
+    let shelf = ShelfStore()
+    let launcher = LauncherStore()
+    let gmail = GmailCenter()
+
+    /// Previews pass a scratch notes file so they never touch real notes.
+    init(notesFile: URL? = nil) {
+        notes = NotesStore(file: notesFile)
+    }
+}
+
+extension View {
+    @MainActor func hub(_ h: Hub, _ model: IslandModel) -> some View {
+        self.environmentObject(model).environmentObject(Prefs.shared)
+            .environmentObject(h.music).environmentObject(h.notes).environmentObject(h.tasks)
+            .environmentObject(h.board).environmentObject(h.signals).environmentObject(h.timers)
+            .environmentObject(h.calendar).environmentObject(h.weather).environmentObject(h.shelf)
+            .environmentObject(h.launcher).environmentObject(h.gmail)
+    }
 }
 
 @MainActor
 final class IslandModel: ObservableObject {
-    enum State: Equatable { case resting, open, bloom(BloomInfo) }
+    enum State: Equatable { case resting, open, moment(Moment) }
 
     @Published var state: State = .resting
-    @Published var tab: IslandTab = .playing { didSet { Prefs.shared.lastTab = tab.rawValue } }
+    @Published var tab: IslandTab = .today { didSet { Prefs.shared.lastTab = tab.rawValue } }
     @Published var showingMenu = false
-    /// Debounced "something to show beside the cover". Turns on at once, turns off only after a few
-    /// quiet seconds, so a track change or a flickering play state never makes the island twitch.
-    @Published var wingsOn = false
+    @Published var wing: WingKind?
+    @Published var dropHover = false
+    @Published var noteFocus = false
 
     var onCheckForUpdates: () -> Void = {}
     var onOpenSettings: () -> Void = {}
     var onRecalibrate: () -> Void = {}
     var onQuit: () -> Void = {}
+    var onQuickNote: () -> Void = {}
 
-    static let wing: CGFloat = 42
-    static let bloomWing: CGFloat = 150
-    static let openWidth: CGFloat = 620
-    static let bodyHeight: CGFloat = 178
+    static let momentWing: CGFloat = 150
+    static let hudWing: CGFloat = 118
+    static let openWidth: CGFloat = 780
+    static let bodyHeight: CGFloat = 232
     static let footerHeight: CGFloat = 34
 
     init() {
-        tab = IslandTab(rawValue: Prefs.shared.lastTab) ?? .playing
+        tab = IslandTab(rawValue: Prefs.shared.lastTab) ?? .today
     }
 
     var isOpen: Bool { state == .open }
 
     func openSize(_ g: PillGeometry) -> CGSize {
-        CGSize(width: max(IslandModel.openWidth, g.width + 380),
+        CGSize(width: max(IslandModel.openWidth, g.width + 480),
                height: g.height + IslandModel.bodyHeight + IslandModel.footerHeight)
+    }
+
+    static func momentWidth(_ m: Moment) -> CGFloat {
+        switch m.kind {
+        case .volume, .brightness: return hudWing
+        default: return momentWing
+        }
     }
 
     func size(_ g: PillGeometry, wings: Bool, in st: State? = nil) -> CGSize {
         switch st ?? state {
-        case .resting: return CGSize(width: g.width + (wings ? IslandModel.wing * 2 : 0), height: g.height)
-        case .bloom: return CGSize(width: g.width + IslandModel.bloomWing * 2, height: g.height)
+        case .resting: return CGSize(width: g.width + (wings ? (wing?.width ?? 0) * 2 : 0), height: g.height)
+        case .moment(let m): return CGSize(width: g.width + Self.momentWidth(m) * 2, height: g.height)
         case .open: return openSize(g)
         }
     }
@@ -74,7 +133,12 @@ final class IslandModel: ObservableObject {
     /// The largest the island ever gets, so the window never clips the spring.
     func maxSize(_ g: PillGeometry) -> CGSize {
         let o = openSize(g)
-        return CGSize(width: max(o.width, g.width + IslandModel.bloomWing * 2), height: o.height)
+        return CGSize(width: max(o.width, g.width + IslandModel.momentWing * 2), height: o.height)
+    }
+
+    var visibleTabs: [IslandTab] {
+        let shown = IslandTab.allCases.filter { Prefs.shared.isTabShown($0.rawValue) }
+        return shown.isEmpty ? [.today] : shown
     }
 }
 
@@ -84,7 +148,6 @@ final class IslandModel: ObservableObject {
 class IslandPanel: NSPanel {
     var allowsKey = false
     var onEscape: (() -> Void)?
-    var onKey: ((NSEvent) -> Bool)?
 
     init(contentRect: NSRect) {
         super.init(contentRect: contentRect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -104,10 +167,6 @@ class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
-    override func keyDown(with event: NSEvent) {
-        if let onKey, onKey(event) { return }
-        if event.keyCode == 53 { onEscape?() } else { super.keyDown(with: event) }
-    }
 }
 
 /// Buttons work on the first click even though Perch never becomes the active app.
@@ -121,48 +180,38 @@ final class FirstClickHostingView<V: View>: NSHostingView<V> {
 final class IslandController {
     let model = IslandModel()
     let prefs = Prefs.shared
-    let music: NowPlayingCenter
-    let notes: NotesStore
-    let board: AgentBoard
+    let hub: Hub
 
     private let panel: IslandPanel
     private var bag = Set<AnyCancellable>()
     private var monitors: [Any] = []
     private var hoverTask: Task<Void, Never>?
     private var leaveTask: Task<Void, Never>?
-    private var bloomTask: Task<Void, Never>?
+    private var momentTask: Task<Void, Never>?
     private var watchTimer: Timer?
-    private var bloomQueue: [BloomInfo] = []
+    private var wingTimer: Timer?
+    private var momentQueue: [Moment] = []
     /// Hover hysteresis: after the island closes, the pointer has to leave the resting area once
     /// before hovering can open it again. This stops open, close, open loops at the top edge.
     private var hoverArmed = true
     private var closedAt = Date.distantPast
-    private var wingsOffTask: Task<Void, Never>?
+    private var wingQuietSince: Date?
+    private var dragChangeAtDown = NSPasteboard(name: .drag).changeCount
+    private var openedForDrop = false
+    private var scrollAccum: CGFloat = 0
     var suspended = false { didSet { panel.alphaValue = suspended ? 0 : 1 } }
 
-    private let shadowRoom: CGFloat = 36
+    private let shadowRoom: CGFloat = 40
 
-    init(music: NowPlayingCenter, notes: NotesStore, board: AgentBoard) {
-        self.music = music
-        self.notes = notes
-        self.board = board
+    init(hub: Hub) {
+        self.hub = hub
         panel = IslandPanel(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10))
-        let root = IslandView(model: model, prefs: prefs, music: music, notes: notes, board: board)
-        let host = FirstClickHostingView(rootView: root)
+        let root = IslandView().hub(hub, model)
+        let host = FirstClickHostingView(rootView: AnyView(root))
         host.sizingOptions = []
         panel.contentView = host
         panel.ignoresMouseEvents = true
         panel.onEscape = { [weak self] in self?.close() }
-
-        // Wings: on immediately, off after 4 quiet seconds.
-        music.$track.map { $0?.playing == true }.removeDuplicates()
-            .combineLatest(board.$agents.map { $0.contains(where: \.isWorking) }.removeDuplicates())
-            .map { $0 || $1 }
-            .removeDuplicates()
-            .sink { [weak self] on in
-                MainActor.assumeIsolated { self?.setWings(on) }
-            }
-            .store(in: &bag)
 
         prefs.$geometry.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { self?.place() }
@@ -171,12 +220,23 @@ final class IslandController {
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.place() }
         }
+        model.onQuickNote = { [weak self] in
+            guard let self else { return }
+            self.hub.notes.add()
+            self.model.tab = .notes
+            self.model.noteFocus = true
+        }
     }
 
     func show() {
         place()
         panel.orderFrontRegardless()
         installMonitors()
+        wingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateWing() }
+        }
+        wingTimer?.tolerance = 0.2
+        updateWing()
     }
 
     // MARK: Placement
@@ -199,16 +259,33 @@ final class IslandController {
         if panel.frame != target { panel.setFrame(target, display: true) }
     }
 
-    private func setWings(_ on: Bool) {
-        wingsOffTask?.cancel()
-        if on {
-            if !model.wingsOn { withAnimation(Motion.wing) { model.wingsOn = true } }
-            return
-        }
-        wingsOffTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard let self, !Task.isCancelled else { return }
-            withAnimation(Motion.wing) { self.model.wingsOn = false }
+    // MARK: Wings
+
+    /// What deserves the wings right now. Turns on at once, and only goes quiet after 4 calm seconds,
+    /// so a track change or a flicker never makes the island twitch.
+    private func desiredWing() -> WingKind? {
+        let s = hub.signals
+        if prefs.privacyDots && (s.cameraOn || s.micOn) { return .privacy(camera: s.cameraOn) }
+        if hub.timers.current != nil { return .timer }
+        if let n = hub.calendar.next, n.start > Date(), n.start.timeIntervalSinceNow < 10 * 60 { return .event }
+        if !hub.board.working.isEmpty { return .agents }
+        if hub.music.isPlaying { return .music }
+        if s.battery.hasBattery && s.battery.charging && s.battery.percent < 100 { return .charging }
+        return nil
+    }
+
+    private func updateWing() {
+        guard prefs.showWings else { if model.wing != nil { withAnimation(Motion.wing) { model.wing = nil } }; return }
+        let want = desiredWing()
+        if let want {
+            wingQuietSince = nil
+            if model.wing != want { withAnimation(Motion.wing) { model.wing = want } }
+        } else if model.wing != nil {
+            if wingQuietSince == nil { wingQuietSince = Date() }
+            if let q = wingQuietSince, Date().timeIntervalSince(q) > 4 {
+                withAnimation(Motion.wing) { model.wing = nil }
+                wingQuietSince = nil
+            }
         }
     }
 
@@ -216,13 +293,11 @@ final class IslandController {
     private func islandRect(for state: IslandModel.State) -> NSRect {
         guard let screen = homeScreen else { return .zero }
         let g = prefs.geometry
-        let s = model.size(g, wings: wingsVisible, in: state)
+        let s = model.size(g, wings: prefs.showWings && model.wing != nil, in: state)
         let f = screen.frame
         return NSRect(x: f.midX + g.horizontalOffset - s.width / 2, y: f.maxY - g.topOffset - s.height,
                       width: s.width, height: s.height)
     }
-
-    private var wingsVisible: Bool { prefs.showWings && model.wingsOn }
 
     // MARK: Mouse
 
@@ -230,20 +305,28 @@ final class IslandController {
         removeMonitors()
         let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown]
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.mouseMoved(NSEvent.mouseLocation) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] e in
+            let dragging = e.type == .leftMouseDragged
+            MainActor.assumeIsolated { self?.mouseMoved(NSEvent.mouseLocation, dragging: dragging) }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] e in
-            MainActor.assumeIsolated { self?.mouseMoved(NSEvent.mouseLocation) }
+            let dragging = e.type == .leftMouseDragged
+            MainActor.assumeIsolated { self?.mouseMoved(NSEvent.mouseLocation, dragging: dragging) }
             return e
         }) { monitors.append(m) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.mouseClicked(NSEvent.mouseLocation, inPanel: false) }
+            MainActor.assumeIsolated { self?.mouseClicked(NSEvent.mouseLocation) }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] e in
-            let mine = e.window === self?.panel
-            MainActor.assumeIsolated { self?.mouseClicked(NSEvent.mouseLocation, inPanel: mine) }
+            MainActor.assumeIsolated { self?.mouseClicked(NSEvent.mouseLocation) }
             return e
+        }) { monitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel], handler: { [weak self] e in
+            let dy = e.scrollingDeltaY, precise = e.hasPreciseScrollingDeltas
+            MainActor.assumeIsolated { self?.scrolled(dy: dy, precise: precise) }
+        }) { monitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp], handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.dragEnded() }
         }) { monitors.append(m) }
     }
 
@@ -252,17 +335,24 @@ final class IslandController {
         monitors.removeAll()
     }
 
-    private func mouseMoved(_ p: NSPoint) {
+    private func mouseMoved(_ p: NSPoint, dragging: Bool) {
         guard !suspended else { return }
         switch model.state {
-        case .resting, .bloom:
+        case .resting, .moment:
             let hot = islandRect(for: model.state).insetBy(dx: -6, dy: -4)
+            // Dragging a file up to the island opens the shelf so you can drop it.
+            if dragging, hot.insetBy(dx: -30, dy: -12).contains(p), isDraggingFiles() {
+                openedForDrop = true
+                model.tab = .shelf
+                open()
+                return
+            }
             if !hoverArmed {
                 // Re-arm only once the pointer has really left the island and a moment has passed.
                 if !hot.insetBy(dx: -10, dy: -10).contains(p) && Date().timeIntervalSince(closedAt) > 0.35 { hoverArmed = true }
                 return
             }
-            guard prefs.openOnHover, hot.contains(p) else { hoverTask?.cancel(); hoverTask = nil; return }
+            guard prefs.openOnHover, !dragging, hot.contains(p) else { hoverTask?.cancel(); hoverTask = nil; return }
             guard hoverTask == nil else { return }
             let delay = UInt64(max(0, prefs.hoverDelay) * 1_000_000_000)
             hoverTask = Task { [weak self] in
@@ -276,9 +366,42 @@ final class IslandController {
         }
     }
 
+    private func isDraggingFiles() -> Bool {
+        let pb = NSPasteboard(name: .drag)
+        guard pb.changeCount != dragChangeAtDown else { return false }
+        let types = pb.types ?? []
+        return types.contains(.fileURL) || types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType"))
+    }
+
+    private func dragEnded() {
+        dragChangeAtDown = NSPasteboard(name: .drag).changeCount
+        if openedForDrop {
+            openedForDrop = false
+            // Give the drop a moment to land, then behave like a normal hover.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                self?.checkLeave(NSEvent.mouseLocation)
+            }
+        }
+    }
+
+    /// Two fingers down on the island opens it; two fingers up closes it.
+    private func scrolled(dy: CGFloat, precise: Bool) {
+        guard prefs.swipeToOpen, !suspended, precise else { return }
+        let p = NSEvent.mouseLocation
+        switch model.state {
+        case .resting, .moment:
+            guard islandRect(for: model.state).insetBy(dx: -8, dy: -6).contains(p) else { scrollAccum = 0; return }
+            scrollAccum = max(0, scrollAccum + dy)
+            if scrollAccum > 18 { scrollAccum = 0; open() }
+        case .open:
+            break
+        }
+    }
+
     private func checkLeave(_ p: NSPoint) {
         let keep = islandRect(for: .open).insetBy(dx: -16, dy: -16)
-        if keep.contains(p) || isEditing || model.showingMenu {
+        if keep.contains(p) || isEditing || model.showingMenu || openedForDrop {
             leaveTask?.cancel(); leaveTask = nil
             return
         }
@@ -293,34 +416,40 @@ final class IslandController {
         }
     }
 
-    private func mouseClicked(_ p: NSPoint, inPanel: Bool) {
+    private func mouseClicked(_ p: NSPoint) {
         guard !suspended else { return }
+        dragChangeAtDown = NSPasteboard(name: .drag).changeCount
         switch model.state {
-        case .resting, .bloom:
+        case .resting, .moment:
             if islandRect(for: model.state).contains(p) { open() }
         case .open:
             if !islandRect(for: .open).contains(p) { close() }
         }
     }
 
-    /// Typing a note keeps the island open even if the pointer wanders off.
+    /// Typing keeps the island open even if the pointer wanders off.
     private var isEditing: Bool {
         panel.isKeyWindow && panel.firstResponder is NSTextView
     }
 
     // MARK: Open and close
 
-    func toggle() { model.isOpen ? close() : open() }
+    func toggle() { model.isOpen ? close() : open(keyboard: true) }
 
-    func open() {
+    func open(keyboard: Bool = false) {
         hoverTask?.cancel(); hoverTask = nil
         leaveTask?.cancel(); leaveTask = nil
-        bloomTask?.cancel()
+        momentTask?.cancel()
         guard !model.isOpen else { return }
+        if !model.visibleTabs.contains(model.tab) { model.tab = model.visibleTabs[0] }
         panel.ignoresMouseEvents = false
         panel.allowsKey = true
+        if keyboard { panel.makeKey() }
+        if prefs.haptics { Haptics.tick() }
         withAnimation(Motion.open) { model.state = .open }
-        board.refreshSoon()
+        hub.board.refreshSoon()
+        hub.weather.refreshIfStale()
+        hub.calendar.reload()
         // A slow safety net for leaving the island, in case a mouse event is missed.
         watchTimer?.invalidate()
         watchTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
@@ -336,7 +465,8 @@ final class IslandController {
         leaveTask?.cancel(); leaveTask = nil
         watchTimer?.invalidate(); watchTimer = nil
         model.showingMenu = false
-        notes.dropEmpty(except: nil)
+        model.noteFocus = false
+        hub.notes.dropEmpty(except: nil)
         panel.allowsKey = false
         if panel.isKeyWindow {
             // Hand the keyboard back to whatever you were using.
@@ -347,31 +477,50 @@ final class IslandController {
         hoverArmed = false
         closedAt = Date()
         withAnimation(Motion.close) { model.state = .resting }
-        playNextBloom()
+        playNextMoment()
     }
 
-    // MARK: Bloom
+    // MARK: Moments
 
-    /// A short, wide flash when an agent finishes: the dot blooms and the name slides out from behind the cover.
-    func bloom(_ info: BloomInfo) {
-        if model.isOpen { return } // the open panel shows the bloom on the agent's own row
-        bloomQueue.append(info)
-        if case .bloom = model.state { return }
-        playNextBloom()
+    /// A short, wide flash: an agent finished, the charger went in, the volume changed.
+    func flash(_ m: Moment) {
+        if model.isOpen { return }
+        // Volume and brightness replace each other at once instead of queueing.
+        if m.kind == .volume || m.kind == .brightness {
+            momentQueue.removeAll { $0.kind == m.kind }
+            if case .moment(let cur) = model.state, cur.kind == m.kind {
+                model.state = .moment(m)
+                scheduleMomentEnd(m.duration)
+                return
+            }
+            momentQueue.insert(m, at: 0)
+        } else {
+            momentQueue.append(m)
+            if momentQueue.count > 6 { momentQueue.removeFirst() }
+        }
+        if case .moment = model.state {
+            if m.kind == .volume || m.kind == .brightness { playNextMoment() }
+            return
+        }
+        playNextMoment()
     }
 
-    private func playNextBloom() {
-        guard !model.isOpen, !bloomQueue.isEmpty else { return }
-        let next = bloomQueue.removeFirst()
-        withAnimation(Motion.bloom) { model.state = .bloom(next) }
-        bloomTask?.cancel()
-        bloomTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_600_000_000)
+    private func playNextMoment() {
+        guard !model.isOpen, !momentQueue.isEmpty else { return }
+        let next = momentQueue.removeFirst()
+        withAnimation(next.kind == .volume || next.kind == .brightness ? Motion.snap : Motion.bloom) { model.state = .moment(next) }
+        scheduleMomentEnd(next.duration)
+    }
+
+    private func scheduleMomentEnd(_ seconds: TimeInterval) {
+        momentTask?.cancel()
+        momentTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
-            if case .bloom = self.model.state {
+            if case .moment = self.model.state {
                 withAnimation(Motion.close) { self.model.state = .resting }
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                self.playNextBloom()
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                self.playNextMoment()
             }
         }
     }

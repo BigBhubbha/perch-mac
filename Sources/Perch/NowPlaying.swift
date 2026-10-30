@@ -21,6 +21,9 @@ struct Track: Equatable {
     /// When `elapsed` was measured.
     var measuredAt: Date
     var rate: Double = 1
+    var shuffle: Bool? = nil
+    /// 0 off, 1 one, 2 all (MediaRemote's numbering, roughly).
+    var repeatMode: Int? = nil
 
     func elapsed(at now: Date) -> Double? {
         guard let e = elapsed else { return nil }
@@ -47,7 +50,44 @@ struct Track: Equatable {
 }
 
 enum MediaCommand: Int {
-    case play = 0, pause = 1, toggle = 2, next = 4, previous = 5
+    case play = 0, pause = 1, toggle = 2, next = 4, previous = 5, shuffle = 6, repeatMode = 7
+}
+
+struct LyricLine: Equatable {
+    var time: Double
+    var text: String
+}
+
+/// Synced lyrics from LRCLIB, a free open lyrics database. No key.
+enum Lyrics {
+    static func fetch(_ t: Track) async -> [LyricLine]? {
+        var c = URLComponents(string: "https://lrclib.net/api/get")!
+        c.queryItems = [URLQueryItem(name: "track_name", value: t.title), URLQueryItem(name: "artist_name", value: t.artist)]
+        if !t.album.isEmpty { c.queryItems?.append(URLQueryItem(name: "album_name", value: t.album)) }
+        if let d = t.duration, d > 0 { c.queryItems?.append(URLQueryItem(name: "duration", value: String(Int(d.rounded())))) }
+        guard let url = c.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("Perch (https://github.com/BigBhubbha/perch-mac)", forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 8
+        guard let res = try? await URLSession.shared.data(for: req), (res.1 as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: res.0) as? [String: Any],
+              let synced = obj["syncedLyrics"] as? String else { return nil }
+        return parse(synced)
+    }
+
+    static func parse(_ lrc: String) -> [LyricLine] {
+        var out: [LyricLine] = []
+        for raw in lrc.split(separator: "\n") {
+            let line = String(raw)
+            guard line.hasPrefix("["), let close = line.firstIndex(of: "]") else { continue }
+            let stamp = line[line.index(after: line.startIndex)..<close]
+            let parts = stamp.split(separator: ":")
+            guard parts.count == 2, let m = Double(parts[0]), let sec = Double(parts[1]) else { continue }
+            let text = line[line.index(after: close)...].trimmingCharacters(in: .whitespaces)
+            out.append(LyricLine(time: m * 60 + sec, text: text))
+        }
+        return out.sorted { $0.time < $1.time }
+    }
 }
 
 @MainActor
@@ -58,6 +98,13 @@ final class NowPlayingCenter: ObservableObject {
     @Published private(set) var artwork: NSImage?
     @Published private(set) var accent: Color = Ink.lime
     @Published private(set) var source: Source = .starting
+    @Published private(set) var lyrics: [LyricLine] = []
+    @Published private(set) var lyricsState: LyricsState = .none
+    /// The darker partner of the accent, for gradients behind the art.
+    @Published private(set) var shade: Color = Color(red: 0.1, green: 0.12, blue: 0.04)
+
+    enum LyricsState: Equatable { case none, loading, found, missing }
+    private var lyricsKey = ""
 
     private let prefs = Prefs.shared
     private var adapter: AdapterStream?
@@ -94,6 +141,71 @@ final class NowPlayingCenter: ObservableObject {
         case .adapter: adapter?.send(command)
         case .appleScript: scripts?.send(command, to: track?.bundleID)
         case .starting: break
+        }
+    }
+
+    func seek(to seconds: Double) {
+        guard var t = track else { return }
+        t.elapsed = max(0, seconds); t.measuredAt = Date(); track = t
+        switch source {
+        case .adapter: adapter?.seek(seconds)
+        case .appleScript: scripts?.seek(seconds, in: t.bundleID)
+        case .starting: break
+        }
+    }
+
+    func skip(by delta: Double) {
+        guard let e = track?.elapsed(at: Date()) else { return }
+        seek(to: e + delta)
+    }
+
+    /// Hands playback to another player: pause this one, press play on the other.
+    func switchTo(_ bundleID: String) {
+        if isPlaying { send(.pause) }
+        let launch = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+        DispatchQueue.global(qos: .userInitiated).async {
+            if launch, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                let cfg = NSWorkspace.OpenConfiguration(); cfg.activates = false
+                NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+                Thread.sleep(forTimeInterval: 2.5)
+            }
+            var err: NSDictionary?
+            NSAppleScript(source: "tell application id \"\(bundleID)\" to play")?.executeAndReturnError(&err)
+        }
+    }
+
+    static func installed(_ bundleID: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
+    }
+
+    func openPlayer() {
+        guard let id = track?.bundleID, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// The lyric line at a moment, and its index.
+    func lyricIndex(at seconds: Double) -> Int? {
+        guard !lyrics.isEmpty else { return nil }
+        var lo = 0, hi = lyrics.count - 1, best: Int?
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if lyrics[mid].time <= seconds + 0.25 { best = mid; lo = mid + 1 } else { hi = mid - 1 }
+        }
+        return best
+    }
+
+    private func loadLyrics(for t: Track) {
+        let key = "\(t.title)|\(t.artist)"
+        guard key != lyricsKey else { return }
+        lyricsKey = key
+        lyrics = []
+        guard prefs.lyricsOn else { lyricsState = .none; return }
+        lyricsState = .loading
+        Task { [weak self] in
+            let found = await Lyrics.fetch(t)
+            guard let self, self.lyricsKey == key else { return }
+            self.lyrics = found ?? []
+            self.lyricsState = (found?.isEmpty == false) ? .found : .missing
         }
     }
 
@@ -157,8 +269,11 @@ final class NowPlayingCenter: ObservableObject {
                       duration: seconds("durationMicros", "duration"),
                       elapsed: seconds("elapsedTimeMicros", "elapsedTime"),
                       measuredAt: measured,
-                      rate: (p["playbackRate"] as? Double) ?? 1)
+                      rate: (p["playbackRate"] as? Double) ?? 1,
+                      shuffle: (p["shuffleMode"] as? Int).map { $0 > 1 } ?? (p["shuffleMode"] as? Bool),
+                      repeatMode: (p["repeatMode"] as? Int))
         if t != track { track = t }
+        loadLyrics(for: t)
         let key = "\(t.title)|\(t.artist)|\(t.album)"
         if let b64 = p["artworkData"] as? String, let data = Data(base64Encoded: b64), let img = NSImage(data: data) {
             if key != artworkKey || artwork == nil { setArtwork(img, key: key) }
@@ -170,6 +285,7 @@ final class NowPlayingCenter: ObservableObject {
     private func applyScript(_ t: Track?, _ art: NSImage?) {
         if t != track { track = t }
         guard let t else { setArtwork(nil, key: ""); return }
+        loadLyrics(for: t)
         let key = "\(t.title)|\(t.artist)|\(t.album)"
         if let art { setArtwork(art, key: key) } else if key != artworkKey { setArtwork(nil, key: key) }
     }
@@ -177,16 +293,25 @@ final class NowPlayingCenter: ObservableObject {
     private func setArtwork(_ image: NSImage?, key: String) {
         artworkKey = key
         artwork = image
-        let c = (prefs.useArtworkColor ? image.flatMap(ArtworkColor.accent) : nil) ?? Ink.limeNS
-        withAnimation(.easeInOut(duration: 0.6)) { accent = Color(nsColor: c) }
+        let art = prefs.accentMode == .art
+        let c = (art ? image.flatMap(ArtworkColor.accent) : nil)
+        let chosen = c.map { Color(nsColor: $0) } ?? prefs.fixedAccent
+        let dark = c.map { Color(nsColor: $0.blended(withFraction: 0.78, of: .black) ?? $0) } ?? Color(red: 0.1, green: 0.12, blue: 0.04)
+        if art { Ink.accent = chosen }
+        withAnimation(.easeInOut(duration: 0.6)) { accent = chosen; shade = dark }
     }
 
     /// Used by the preview renderer.
-    func showSample(_ t: Track, art: NSImage?) {
+    func showSample(_ t: Track, art: NSImage?, lyrics: [LyricLine] = []) {
         track = t
         source = .adapter
+        lyricsKey = "\(t.title)|\(t.artist)"
+        self.lyrics = lyrics
+        lyricsState = lyrics.isEmpty ? .none : .found
         setArtwork(art, key: t.title)
     }
+
+    func clearSample() { track = nil; artwork = nil; lyrics = [] }
 }
 
 // MARK: mediaremote-adapter
@@ -296,6 +421,19 @@ final class AdapterStream {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
             p.arguments = [paths.script, paths.framework, "send", String(c.rawValue)]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
+        }
+    }
+
+    func seek(_ seconds: Double) {
+        let paths = self.paths
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+            p.arguments = [paths.script, paths.framework, "seek", String(Int64(seconds * 1_000_000))]
             p.standardOutput = FileHandle.nullDevice
             p.standardError = FileHandle.nullDevice
             try? p.run()
@@ -426,10 +564,24 @@ final class ScriptPoller {
         case .toggle: verb = "playpause"
         case .next: verb = "next track"
         case .previous: verb = "previous track"
+        case .shuffle:
+            verb = id == Self.spotify ? "set shuffling to not shuffling" : "set shuffle enabled to not shuffle enabled"
+        case .repeatMode:
+            verb = id == Self.spotify ? "set repeating to not repeating" : "if song repeat is off then\nset song repeat to all\nelse\nset song repeat to off\nend if"
         }
         queue.async { [weak self] in
-            _ = self?.run("tell application id \"\(id)\" to \(verb)")
+            _ = self?.run("tell application id \"\(id)\"\n\(verb)\nend tell")
             self?.poll()
+        }
+    }
+}
+
+extension ScriptPoller {
+    func seek(_ seconds: Double, in bundleID: String?) {
+        let id = bundleID == Self.music ? Self.music : Self.spotify
+        DispatchQueue.global(qos: .userInitiated).async {
+            var err: NSDictionary?
+            NSAppleScript(source: "tell application id \"\(id)\" to set player position to \(seconds)")?.executeAndReturnError(&err)
         }
     }
 }
@@ -437,7 +589,7 @@ final class ScriptPoller {
 // MARK: Accent color from album art
 
 enum ArtworkColor {
-    /// The most vivid colour in the artwork, lifted so it reads on black. Nil for grey artwork.
+    /// The most vivid color in the artwork, lifted so it reads on black. Nil for grey artwork.
     static func accent(from image: NSImage) -> NSColor? {
         let side = 16
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
