@@ -110,7 +110,9 @@ final class NowPlayingCenter: ObservableObject {
                 guard let self, self.adapter === stream else { return }
                 self.restarts += 1
                 if self.restarts <= 3 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(self.restarts) * 2) { [weak self] in
+                    let wait = UInt64(self.restarts) * 2_000_000_000
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: wait)
                         guard let self, self.source == .adapter else { return }
                         self.adapter?.start()
                     }

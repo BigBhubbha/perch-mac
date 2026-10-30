@@ -126,7 +126,8 @@ final class AgentBoard: ObservableObject {
                 justFinished.insert(a.id)
                 onFinish(a)
                 let id = a.id
-                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
                     self?.justFinished.remove(id)
                 }
             }

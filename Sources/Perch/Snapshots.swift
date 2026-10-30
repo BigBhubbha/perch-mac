@@ -76,12 +76,12 @@ enum Snapshots {
         let emptyBoard = AgentBoard()
         emptyBoard.setSample([])
 
-        func scene(_ model: IslandModel, music m: NowPlayingCenter, board b: AgentBoard, height: CGFloat) -> some View {
-            ScreenSlice(height: height, g: prefs.geometry) {
+        func scene(_ model: IslandModel, music m: NowPlayingCenter, board b: AgentBoard, height: CGFloat) -> AnyView {
+            AnyView(ScreenSlice(height: height, g: prefs.geometry) {
                 IslandView(model: model, prefs: prefs, music: m, notes: notes, board: b)
                     .frame(width: model.maxSize(prefs.geometry).width + 72,
                            height: prefs.geometry.topOffset + model.maxSize(prefs.geometry).height + 36)
-            }
+            })
         }
 
         let resting = IslandModel()

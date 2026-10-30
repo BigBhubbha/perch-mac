@@ -98,32 +98,32 @@ struct CalibrationView: View {
                     .fill(fill)
                     .frame(width: g.width, height: g.height)
                     .contentShape(Rectangle())
-                    .position(x: cx, y: g.topOffset + g.height / 2)
                     .gesture(drag { s, t in
                         var n = s; n.horizontalOffset += t.width; n.topOffset += t.height; return n
                     })
                     .onHover { inside in if inside { NSCursor.openHand.set() } else { NSCursor.arrow.set() } }
+                    .position(x: cx, y: g.topOffset + g.height / 2)
 
                 // Side handles stretch the width evenly, the bottom handle sets the height.
                 Handle(vertical: true)
-                    .position(x: cx + g.width / 2 + 9, y: g.topOffset + g.height / 2)
                     .gesture(drag { s, t in var n = s; n.width += t.width * 2; return n })
+                    .position(x: cx + g.width / 2 + 9, y: g.topOffset + g.height / 2)
                 Handle(vertical: true)
-                    .position(x: cx - g.width / 2 - 9, y: g.topOffset + g.height / 2)
                     .gesture(drag { s, t in var n = s; n.width -= t.width * 2; return n })
+                    .position(x: cx - g.width / 2 - 9, y: g.topOffset + g.height / 2)
                 Handle(vertical: false)
-                    .position(x: cx, y: g.topOffset + g.height + 9)
                     .gesture(drag { s, t in
                         var n = s; n.height += t.height
                         if abs(s.cornerRadius - s.height / 2) < 1 { n.cornerRadius = n.height / 2 }
                         return n
                     })
+                    .position(x: cx, y: g.topOffset + g.height + 9)
                 // Corner knob: drag toward the corner for squarer, away for rounder.
                 Circle().fill(Color.white).frame(width: 12, height: 12)
                     .overlay(Circle().stroke(Color.black.opacity(0.4), lineWidth: 1))
                     .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
-                    .position(x: cx + g.width / 2 + 9, y: g.topOffset + g.height + 9)
                     .gesture(drag { s, t in var n = s; n.cornerRadius -= (t.width + t.height) / 2; return n })
+                    .position(x: cx + g.width / 2 + 9, y: g.topOffset + g.height + 9)
                     .help("Corner roundness")
 
                 hud

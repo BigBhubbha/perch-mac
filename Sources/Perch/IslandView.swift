@@ -289,7 +289,6 @@ struct ControlButton: View {
     var prominent = false
     let action: () -> Void
     @State private var hover = false
-    @State private var pressed = false
 
     var body: some View {
         Button(action: action) {
@@ -299,13 +298,18 @@ struct ControlButton: View {
                 .frame(width: prominent ? 42 : 32, height: prominent ? 42 : 32)
                 .background(Circle().fill(Color.white.opacity(prominent ? (hover ? 0.16 : 0.10) : (hover ? 0.08 : 0))))
                 .contentShape(Circle())
-                .scaleEffect(pressed ? 0.9 : 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
-        .simultaneousGesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in withAnimation(.easeOut(duration: 0.08)) { pressed = true } }
-            .onEnded { _ in withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { pressed = false } })
+    }
+}
+
+/// A small squeeze while pressed, springing back on release.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
