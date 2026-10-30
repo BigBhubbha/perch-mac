@@ -165,7 +165,7 @@ private struct ScreenSlice<Content: View>: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 1100, height: height)
+        .frame(width: 1100, height: height, alignment: .top)
         .clipped()
     }
 }

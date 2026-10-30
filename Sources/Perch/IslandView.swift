@@ -400,6 +400,18 @@ struct EmptyState: View {
     }
 }
 
+/// A quiet vertical scroller. Preview renders skip the scroll view, which ImageRenderer cannot draw.
+struct Scrolling<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        if RenderMode.snapshot {
+            content.frame(maxHeight: .infinity, alignment: .top)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) { content }
+        }
+    }
+}
+
 // MARK: Notes
 
 struct NotesPane: View {
@@ -418,7 +430,7 @@ struct NotesPane: View {
                     .buttonStyle(.plain)
                     .help("New note")
                 }
-                ScrollView(.vertical, showsIndicators: false) {
+                Scrolling {
                     VStack(spacing: 2) {
                         ForEach(notes.sorted) { n in
                             NoteRow(note: n, selected: notes.selected?.id == n.id) { notes.selectedID = n.id }
@@ -555,10 +567,17 @@ struct AgentsPane: View {
                             Text(linkLine).font(.ui(10.5)).foregroundStyle(Ink.coral).lineLimit(1)
                         }
                     }
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                            ForEach(board.agents) { a in
-                                AgentCard(agent: a, blooming: board.justFinished.contains(a.id))
+                    Scrolling {
+                        VStack(spacing: 10) {
+                            ForEach(Array(stride(from: 0, to: board.agents.count, by: 2)), id: \.self) { i in
+                                HStack(alignment: .top, spacing: 10) {
+                                    card(board.agents[i])
+                                    if i + 1 < board.agents.count {
+                                        card(board.agents[i + 1])
+                                    } else {
+                                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                                    }
+                                }
                             }
                         }
                     }
@@ -566,6 +585,10 @@ struct AgentsPane: View {
                 .padding(.vertical, 14)
             }
         }
+    }
+
+    private func card(_ a: Agent) -> some View {
+        AgentCard(agent: a, blooming: board.justFinished.contains(a.id))
     }
 
     private var summary: String {
