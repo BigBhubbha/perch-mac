@@ -64,26 +64,28 @@ private struct TodaySpill: View {
             Divide()
             VStack(alignment: .leading, spacing: 14) {
                 if let w = weather.now {
-                    HStack(spacing: 14) {
-                        Image(systemName: w.symbol).symbolRenderingMode(.multicolor).font(.system(size: 30))
-                        VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Image(systemName: w.symbol).symbolRenderingMode(.multicolor).font(.system(size: 26))
                             Text("\(Int(w.temp.rounded()))°").font(.serif(30)).foregroundStyle(Ink.text)
-                            Text("\(WeatherNow.words(w.code)) · H \(Int(w.high.rounded()))° L \(Int(w.low.rounded()))°")
-                                .font(.ui(11)).foregroundStyle(Ink.text2)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(WeatherNow.words(w.code)).font(.ui(11.5, .semibold)).foregroundStyle(Ink.text)
+                                Text("H \(Int(w.high.rounded()))°  L \(Int(w.low.rounded()))°").font(.ui(10.5)).foregroundStyle(Ink.text3)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        Spacer()
-                        HStack(spacing: 10) {
-                            ForEach(Array(w.hours.prefix(5).enumerated()), id: \.offset) { _, h in
+                        HStack(spacing: 0) {
+                            ForEach(Array(w.hours.prefix(6).enumerated()), id: \.offset) { _, h in
                                 VStack(spacing: 4) {
-                                    Text(h.0.formatted(.dateTime.hour())).font(.ui(9.5)).foregroundStyle(Ink.text3)
-                                    Image(systemName: WeatherNow.symbol(h.2, day: true)).symbolRenderingMode(.multicolor).font(.system(size: 12))
+                                    Text(h.0.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)))).font(.ui(9.5)).foregroundStyle(Ink.text3).lineLimit(1).fixedSize()
+                                    Image(systemName: WeatherNow.symbol(h.2, day: true)).symbolRenderingMode(.multicolor).font(.system(size: 12)).frame(height: 14)
                                     Text("\(Int(h.1.rounded()))°").font(.round(10.5, .medium)).foregroundStyle(Ink.text2)
                                 }
+                                .frame(maxWidth: .infinity)
                             }
                         }
                     }
                     .card(14, padding: 14)
-                    .frame(height: 92)
                 }
                 SpillColumn(title: "Homework and to-dos", trailing: "\(tasks.openCount) open") {
                     Scrolling {
@@ -362,7 +364,7 @@ private struct MailSpill: View {
                     }
                     Scrolling {
                         VStack(spacing: 3) {
-                            ForEach(gmail.inbox.prefix(RenderMode.snapshot ? 7 : 25)) { m in
+                            ForEach(gmail.inbox.prefix(RenderMode.snapshot ? 6 : 25)) { m in
                                 ThreadRow(mail: m, selected: m.id == selected?.id) {
                                     selectedID = m.id
                                     Task { await gmail.loadBody(m) }
@@ -375,6 +377,8 @@ private struct MailSpill: View {
                 Divide()
                 reading.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
             .task { if gmail.inbox.isEmpty { await gmail.loadInbox() } }
         }
     }
@@ -405,7 +409,6 @@ private struct MailSpill: View {
                     Chip(title: "Archive", symbol: "archivebox") { withAnimation { gmail.archive(m); selectedID = nil } }
                     Chip(title: "Open in Gmail", symbol: "arrow.up.right") { gmail.open(m) }
                     Spacer()
-                    Text("Drag the message out to pour it somewhere").font(.ui(10)).foregroundStyle(Ink.text3)
                 }
             }
             .onAppear { if !RenderMode.snapshot { Task { await gmail.loadBody(m) } } }
