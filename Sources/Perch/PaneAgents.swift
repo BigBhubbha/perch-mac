@@ -133,7 +133,7 @@ private struct StatusPip: View {
             case .started, .working:
                 Circle().fill(agent.quiet == true ? Ink.quiet : Ink.mint).frame(width: 7, height: 7)
             case .finished:
-                if blooming { BloomBurst(color: Ink.accent).frame(width: 22, height: 22) }
+                if blooming { InkBloom(color: Ink.accent, size: 24) }
                 Circle().fill(Ink.accent).frame(width: 9, height: 9)
                 Image(systemName: "checkmark").font(.system(size: 5.5, weight: .black)).foregroundStyle(Ink.onAccent)
             case .failed:

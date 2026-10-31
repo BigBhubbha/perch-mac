@@ -80,27 +80,40 @@ struct MusicPane: View {
 }
 
 /// The album art, blown up and blurred into a soft glow behind everything.
-private struct Backdrop: View {
+/// The album's color seeps into the island like dye dropped into water, a little slower each time the song changes.
+struct Backdrop: View {
     let image: NSImage?
     let accent: Color
     let shade: Color
+    @Environment(\.liquidTime) private var fixedTime
+    @State private var dye: CGFloat = RenderMode.snapshot ? 1 : 0
+
     var body: some View {
+        let p = fixedTime.map { CGFloat(min(1, $0 / 2.2)) } ?? dye
         ZStack {
             LinearGradient(colors: [shade.opacity(0.9), .clear], startPoint: .leading, endPoint: .trailing)
+                .opacity(Double(p))
             if let image {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                     .frame(width: 360, height: 360)
                     .blur(radius: 60)
-                    .opacity(Ink.palette.isLight ? 0.35 : 0.5)
+                    .opacity((Ink.palette.isLight ? 0.30 : 0.42) * Double(min(1, p * 1.4)))
                     .offset(x: -220)
-            } else {
-                Circle().fill(accent.opacity(0.25)).frame(width: 260).blur(radius: 70).offset(x: -220)
             }
+            DyeLayer(color: accent, progress: p, strength: Ink.palette.isLight ? 0.22 : 0.30)
             LinearGradient(colors: [Ink.pill.opacity(0), Ink.pill.opacity(0.85)], startPoint: .leading, endPoint: .trailing)
         }
         .padding(.horizontal, -20)
         .allowsHitTesting(false)
         .clipped()
+        .onAppear { diffuse() }
+        .onChange(of: accent) { _ in diffuse() }
+    }
+
+    private func diffuse() {
+        guard fixedTime == nil, !RenderMode.snapshot else { return }
+        dye = 0
+        withAnimation(.timingCurve(0.2, 0.7, 0.3, 1, duration: 2.2)) { dye = 1 }
     }
 }
 

@@ -124,7 +124,9 @@ jobs:
 
       - name: Render design snapshots
         continue-on-error: true
+        timeout-minutes: 20
         run: |
+          for s in drop sink plip fill; do test -f "build/Perch.app/Contents/Resources/Sounds/$s.wav" || { echo "::error::missing sound $s"; exit 1; }; done
           "build/Perch.app/Contents/MacOS/Perch" --perch-snapshots "$RUNNER_TEMP/snapshots"
           ls -la "$RUNNER_TEMP/snapshots"
 

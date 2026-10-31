@@ -175,23 +175,9 @@ final class AgentBoard: ObservableObject {
     }
 }
 
+/// Event sounds: a drop of water when something finishes, a lower drop that sinks when it fails.
 enum Chime {
-    private static var sound: NSSound? = {
-        guard let url = Bundle.main.url(forResource: "bloom", withExtension: "wav", subdirectory: "Sounds") else { return nil }
-        let s = NSSound(contentsOf: url, byReference: true)
-        s?.volume = 0.55
-        return s
-    }()
-    private static var low: NSSound? = {
-        guard let url = Bundle.main.url(forResource: "fall", withExtension: "wav", subdirectory: "Sounds") else { return nil }
-        let s = NSSound(contentsOf: url, byReference: true)
-        s?.volume = 0.5
-        return s
-    }()
-
     static func play(success: Bool) {
-        let s = success ? sound : (low ?? sound)
-        s?.stop()
-        if s?.play() != true { NSSound.beep() }
+        WaterSound.play(success ? .drop : .sink, volume: success ? 0.55 : 0.5)
     }
 }

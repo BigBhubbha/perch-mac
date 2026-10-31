@@ -1,4 +1,4 @@
-// `Perch --perch-snapshots <folder>` renders every surface to PNGs and quits.
+// `Perch --perch-snapshots <folder>` renders every surface to PNGs, then the motion frames, and quits.
 // CI uses it so the design can be reviewed without a Mac. The scenes include a drawn stand-in for
 // the lime camera cover, since on the real screen the cover sits on top of the island.
 // All sample data here is made up.
@@ -233,6 +233,8 @@ enum Snapshots {
                     .hub(hub, model), "settings-\(page.rawValue)", to: dir)
         }
         prefs.lastTab = IslandTab.today.rawValue
+
+        MotionClips.render(to: dir.appendingPathComponent("motion", isDirectory: true), hub: hub, model: model)
     }
 }
 

@@ -70,6 +70,8 @@ final class Prefs: ObservableObject {
     @Published var showWings: Bool { didSet { d.set(showWings, forKey: "showWings") } }
     @Published var chimeOnFinish: Bool { didSet { d.set(chimeOnFinish, forKey: "chimeOnFinish") } }
     @Published var haptics: Bool { didSet { d.set(haptics, forKey: "haptics") } }
+    @Published var liquidSurface: Bool { didSet { d.set(liquidSurface, forKey: "liquidSurface") } }
+    @Published var waterSounds: Bool { didSet { d.set(waterSounds, forKey: "waterSounds") } }
     @Published var theme: ThemeName { didSet { d.set(theme.rawValue, forKey: "theme"); applyLook() } }
     @Published var accentMode: AccentMode { didSet { d.set(accentMode.rawValue, forKey: "accentMode"); applyLook() } }
     @Published var lastTab: String { didSet { d.set(lastTab, forKey: "lastTab") } }
@@ -99,7 +101,7 @@ final class Prefs: ObservableObject {
     private init() {
         d.register(defaults: [
             "openOnHover": true, "hoverDelay": 0.12, "swipeToOpen": true, "showWings": true, "chimeOnFinish": true,
-            "haptics": true, "theme": "ink", "accentMode": "art", "lastTab": "today", "shortcut": "ctrlOptSpace",
+            "haptics": true, "liquidSurface": true, "waterSounds": false, "theme": "ink", "accentMode": "art", "lastTab": "today", "shortcut": "ctrlOptSpace",
             "volumeHUD": true, "replaceSystemHUD": false, "chargingMoment": true, "deviceMoments": false,
             "privacyDots": true, "calendarOn": false, "clipboardOn": true, "lyricsOn": true,
             "weatherCity": "Shreveport", "weatherLat": 32.5252, "weatherLon": -93.7502, "fahrenheit": true,
@@ -117,6 +119,8 @@ final class Prefs: ObservableObject {
         showWings = d.bool(forKey: "showWings")
         chimeOnFinish = d.bool(forKey: "chimeOnFinish")
         haptics = d.bool(forKey: "haptics")
+        liquidSurface = d.bool(forKey: "liquidSurface")
+        waterSounds = d.bool(forKey: "waterSounds")
         theme = ThemeName(rawValue: d.string(forKey: "theme") ?? "") ?? .ink
         accentMode = AccentMode(rawValue: d.string(forKey: "accentMode") ?? "") ?? .art
         lastTab = d.string(forKey: "lastTab") ?? "today"

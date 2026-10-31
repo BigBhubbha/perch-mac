@@ -91,6 +91,11 @@ final class IslandModel: ObservableObject {
     @Published var wing: WingKind?
     @Published var dropHover = false
     @Published var noteFocus = false
+    /// Where the pointer touched the island as it opened, in island coordinates, for the ripple.
+    @Published var rippleOrigin: CGPoint?
+    @Published var rippleTick = 0
+    /// Bumps every time a new moment starts, so the surface can grow a drip.
+    @Published var momentSerial = 0
 
     var onCheckForUpdates: () -> Void = {}
     var onOpenSettings: () -> Void = {}
@@ -451,6 +456,13 @@ final class IslandController {
         panel.allowsKey = true
         if keyboard { panel.makeKey() }
         if prefs.haptics { Haptics.tick() }
+        if !keyboard, let screen = homeScreen {
+            let g = prefs.geometry, p = NSEvent.mouseLocation, f = screen.frame, o = model.openSize(g)
+            model.rippleOrigin = CGPoint(x: p.x - (f.midX + g.horizontalOffset - o.width / 2),
+                                         y: max(8, min(g.height, f.maxY - g.topOffset - p.y)))
+            model.rippleTick += 1
+        }
+        if prefs.waterSounds { WaterSound.play(.plip, volume: 0.22) }
         withAnimation(Motion.open) { model.state = .open }
         hub.board.refreshSoon()
         hub.weather.refreshIfStale()
@@ -513,7 +525,8 @@ final class IslandController {
     private func playNextMoment() {
         guard !model.isOpen, !momentQueue.isEmpty else { return }
         let next = momentQueue.removeFirst()
-        withAnimation(next.kind == .volume || next.kind == .brightness ? Motion.snap : Motion.bloom) { model.state = .moment(next) }
+        withAnimation(next.kind == .volume || next.kind == .brightness ? Motion.wing : Motion.bloom) { model.state = .moment(next) }
+        model.momentSerial += 1
         scheduleMomentEnd(next.duration)
     }
 

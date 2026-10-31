@@ -166,7 +166,11 @@ private struct LookSettings: View {
                 }
             }
         }
-        SettingsSection(title: "Accent", note: "From album art follows whatever you are playing, and falls back to the cover lime.") {
+        SettingsSection(title: "Surface", note: nil) {
+            ToggleRow(title: "Liquid surface", detail: "The island moves like a drop of ink. It switches to a plain shape in Low Power Mode.", isOn: $prefs.liquidSurface)
+            ToggleRow(title: "Water sounds", detail: "A quiet drip as it opens and small bubbles when you plug in.", isOn: $prefs.waterSounds)
+        }
+        SettingsSection(title: "Accent", note: "Dye from album art follows whatever you are playing, and falls back to the cover lime.") {
             HStack(spacing: 10) {
                 ForEach(AccentMode.allCases) { a in
                     Button { prefs.accentMode = a } label: {
@@ -222,7 +226,7 @@ private struct MomentSettings: View {
                           if on { signals.startBluetooth() } else { signals.stopBluetooth() }
                       }))
             ToggleRow(title: "Camera and microphone", detail: "A green or amber dot while something is using them.", isOn: $prefs.privacyDots)
-            ToggleRow(title: "Chime when an agent finishes", detail: "A soft two-note bell.", isOn: $prefs.chimeOnFinish)
+            ToggleRow(title: "A drop of water when an agent finishes", detail: "Soft, and lower if it stopped with a problem.", isOn: $prefs.chimeOnFinish)
         }
         Text("Focus modes are not shown. macOS only shares them with apps from Apple's paid developer program.")
             .font(.serif(12.5).italic()).foregroundStyle(Ink.text3)
@@ -481,8 +485,10 @@ struct ThemeSwatch: View {
             VStack(spacing: 7) {
                 ZStack(alignment: .top) {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(LinearGradient(colors: [Color(red: 0.26, green: 0.33, blue: 0.45), Color(red: 0.44, green: 0.38, blue: 0.5)], startPoint: .top, endPoint: .bottom))
+                        .fill(LinearGradient(colors: [Color(red: 0.20, green: 0.30, blue: 0.40), Color(red: 0.42, green: 0.50, blue: 0.56)], startPoint: .top, endPoint: .bottom))
                     IslandShape(radius: 12, ear: 4).fill(p.pill).frame(width: 96, height: 40)
+                        .overlay(IslandShape(radius: 12, ear: 4).stroke(p.meniscus, lineWidth: 1).frame(width: 96, height: 40))
+                    Circle().fill(p.pill).frame(width: 7, height: 8).offset(x: 26, y: 43)
                     VStack(spacing: 4) {
                         Capsule().fill(Ink.accent).frame(width: 34, height: 12)
                         Capsule().fill(p.text.opacity(0.6)).frame(width: 50, height: 3)

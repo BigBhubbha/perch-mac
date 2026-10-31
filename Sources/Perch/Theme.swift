@@ -1,5 +1,5 @@
-// Colors, type and motion. Ink black with one bright note, the lime of the camera cover,
-// or a color lifted from the album art. Three themes: Ink, Graphite and Paper.
+// Colors, type and motion, all from one idea: ink in water. Sumi ink with a blue undertone, deep water,
+// or washi paper with ink on it, and one bright note of dye: the lime of the camera cover or the album art.
 import SwiftUI
 import AppKit
 
@@ -8,9 +8,9 @@ enum ThemeName: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .ink: return "Ink"
-        case .graphite: return "Graphite"
-        case .paper: return "Paper"
+        case .ink: return "Sumi ink"
+        case .graphite: return "Deep water"
+        case .paper: return "Washi paper"
         }
     }
 }
@@ -20,19 +20,19 @@ enum AccentMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .art: return "From album art"
+        case .art: return "Dye from album art"
         case .lime: return "Cover lime"
-        case .coral: return "Coral"
-        case .sky: return "Sky"
-        case .lilac: return "Lilac"
+        case .coral: return "Koi"
+        case .sky: return "Tide"
+        case .lilac: return "Indigo"
         }
     }
     var fixed: Color {
         switch self {
         case .art, .lime: return Color(red: 0.80, green: 0.94, blue: 0.27)
-        case .coral: return Color(red: 1.0, green: 0.52, blue: 0.42)
-        case .sky: return Color(red: 0.45, green: 0.75, blue: 1.0)
-        case .lilac: return Color(red: 0.74, green: 0.62, blue: 1.0)
+        case .coral: return Color(red: 1.0, green: 0.50, blue: 0.40)
+        case .sky: return Color(red: 0.36, green: 0.80, blue: 0.92)
+        case .lilac: return Color(red: 0.55, green: 0.60, blue: 1.0)
         }
     }
 }
@@ -49,25 +49,41 @@ struct Palette {
     var card: Color
     var isLight: Bool
 
-    static let ink = Palette(pill: Color(red: 0.027, green: 0.027, blue: 0.031),
-                             raised: Color.white.opacity(0.055), raisedHover: Color.white.opacity(0.10),
-                             hairline: Color.white.opacity(0.08), text: Color.white.opacity(0.94),
-                             text2: Color.white.opacity(0.60), text3: Color.white.opacity(0.36),
-                             window: Color(red: 0.067, green: 0.067, blue: 0.075),
-                             card: Color(red: 0.10, green: 0.10, blue: 0.11), isLight: false)
-    static let graphite = Palette(pill: Color(red: 0.13, green: 0.13, blue: 0.145),
-                                  raised: Color.white.opacity(0.07), raisedHover: Color.white.opacity(0.12),
-                                  hairline: Color.white.opacity(0.09), text: Color.white.opacity(0.95),
-                                  text2: Color.white.opacity(0.64), text3: Color.white.opacity(0.40),
-                                  window: Color(red: 0.11, green: 0.11, blue: 0.12),
-                                  card: Color(red: 0.16, green: 0.16, blue: 0.175), isLight: false)
-    static let paper = Palette(pill: Color(red: 0.965, green: 0.945, blue: 0.905),
-                               raised: Color.black.opacity(0.05), raisedHover: Color.black.opacity(0.09),
-                               hairline: Color.black.opacity(0.08), text: Color(red: 0.11, green: 0.10, blue: 0.09),
-                               text2: Color(red: 0.11, green: 0.10, blue: 0.09).opacity(0.62),
-                               text3: Color(red: 0.11, green: 0.10, blue: 0.09).opacity(0.40),
-                               window: Color(red: 0.95, green: 0.93, blue: 0.89),
-                               card: Color(red: 0.99, green: 0.98, blue: 0.96), isLight: true)
+    /// Sumi ink: almost black, with the blue that real ink has where it pools.
+    static let ink = Palette(pill: Color(red: 0.018, green: 0.022, blue: 0.034),
+                             raised: Color(red: 0.62, green: 0.72, blue: 1.0).opacity(0.06),
+                             raisedHover: Color(red: 0.62, green: 0.72, blue: 1.0).opacity(0.11),
+                             hairline: Color(red: 0.70, green: 0.80, blue: 1.0).opacity(0.09),
+                             text: Color(red: 0.95, green: 0.96, blue: 0.98),
+                             text2: Color(red: 0.86, green: 0.89, blue: 0.96).opacity(0.62),
+                             text3: Color(red: 0.80, green: 0.85, blue: 0.96).opacity(0.38),
+                             window: Color(red: 0.050, green: 0.058, blue: 0.078),
+                             card: Color(red: 0.082, green: 0.094, blue: 0.122), isLight: false)
+    /// Deep water: dark teal navy, like looking down into a lake.
+    static let graphite = Palette(pill: Color(red: 0.030, green: 0.082, blue: 0.106),
+                                  raised: Color(red: 0.55, green: 0.90, blue: 1.0).opacity(0.07),
+                                  raisedHover: Color(red: 0.55, green: 0.90, blue: 1.0).opacity(0.12),
+                                  hairline: Color(red: 0.60, green: 0.92, blue: 1.0).opacity(0.10),
+                                  text: Color(red: 0.93, green: 0.98, blue: 0.99),
+                                  text2: Color(red: 0.80, green: 0.93, blue: 0.96).opacity(0.64),
+                                  text3: Color(red: 0.72, green: 0.90, blue: 0.95).opacity(0.40),
+                                  window: Color(red: 0.045, green: 0.095, blue: 0.118),
+                                  card: Color(red: 0.070, green: 0.135, blue: 0.165), isLight: false)
+    /// Washi paper: warm and soft, with text the color of dried ink.
+    static let paper = Palette(pill: Color(red: 0.958, green: 0.938, blue: 0.898),
+                               raised: Color(red: 0.10, green: 0.12, blue: 0.20).opacity(0.05),
+                               raisedHover: Color(red: 0.10, green: 0.12, blue: 0.20).opacity(0.09),
+                               hairline: Color(red: 0.10, green: 0.12, blue: 0.20).opacity(0.09),
+                               text: Color(red: 0.075, green: 0.085, blue: 0.12),
+                               text2: Color(red: 0.075, green: 0.085, blue: 0.12).opacity(0.62),
+                               text3: Color(red: 0.075, green: 0.085, blue: 0.12).opacity(0.40),
+                               window: Color(red: 0.945, green: 0.925, blue: 0.885),
+                               card: Color(red: 0.99, green: 0.982, blue: 0.962), isLight: true)
+
+    /// The thin bright edge of the drop, where light catches the surface.
+    var meniscus: Color {
+        isLight ? Color.white.opacity(0.95) : Color(red: 0.62, green: 0.74, blue: 1.0).opacity(0.30)
+    }
 
     static func named(_ n: ThemeName) -> Palette {
         switch n {
@@ -99,7 +115,8 @@ enum Ink {
     static let coral = Color(red: 1.0, green: 0.46, blue: 0.38)
     static let amber = Color(red: 1.0, green: 0.70, blue: 0.25)
     static let mint = Color(red: 0.40, green: 0.88, blue: 0.62)
-    static let sky = Color(red: 0.45, green: 0.75, blue: 1.0)
+    static let sky = Color(red: 0.36, green: 0.80, blue: 0.92)
+    static var meniscus: Color { palette.meniscus }
     static var quiet: Color { palette.text3 }
     static let limeNS = NSColor(red: 0.80, green: 0.94, blue: 0.27, alpha: 1)
 }
@@ -135,12 +152,21 @@ enum RenderMode {
     static var snapshot = false
 }
 
+/// Viscous springs: heavier than the usual UI spring, so things flow, overshoot a little, and settle like a liquid.
 enum Motion {
-    static let open = Animation.spring(response: 0.40, dampingFraction: 0.80)
-    static let close = Animation.spring(response: 0.36, dampingFraction: 0.95)
-    static let wing = Animation.spring(response: 0.45, dampingFraction: 0.82)
-    static let bloom = Animation.spring(response: 0.50, dampingFraction: 0.70)
-    static let tab = Animation.spring(response: 0.32, dampingFraction: 0.86)
+    static let openSpring = ViscousSpring(stiffness: 150, damping: 17.5)
+    static let closeSpring = ViscousSpring(stiffness: 210, damping: 27)
+    static let wingSpring = ViscousSpring(stiffness: 170, damping: 15.5)
+    static let bloomSpring = ViscousSpring(stiffness: 160, damping: 15)
+    static let tabSpring = ViscousSpring(stiffness: 230, damping: 27)
+    static let levelSpring = ViscousSpring(stiffness: 120, damping: 15)
+
+    static let open = openSpring.animation
+    static let close = closeSpring.animation
+    static let wing = wingSpring.animation
+    static let bloom = bloomSpring.animation
+    static let tab = tabSpring.animation
+    static let viscous = levelSpring.animation
     static let snap = Animation.spring(response: 0.25, dampingFraction: 0.8)
 }
 

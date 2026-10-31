@@ -7,6 +7,9 @@ struct IslandView: View {
     @EnvironmentObject var model: IslandModel
     @EnvironmentObject var prefs: Prefs
     @EnvironmentObject var shelf: ShelfStore
+    @State private var drip: CGFloat = 0
+    @State private var dripX: CGFloat = 0
+    @State private var ripple: CGFloat = 0
 
     var body: some View {
         let g = prefs.geometry
@@ -15,37 +18,101 @@ struct IslandView: View {
         let open = model.isOpen
         let shape = IslandShape(radius: open ? 34 : g.cornerRadius, ear: g.topOffset > 0 ? 0 : (open ? 14 : 6))
 
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                shape
-                    .fill(Ink.pill)
-                    .overlay(shape.stroke(Ink.palette.isLight ? Color.black.opacity(0.06) : Color.white.opacity(open ? 0.05 : 0), lineWidth: 1))
-                    .shadow(color: .black.opacity(open ? 0.55 : 0), radius: open ? 28 : 0, x: 0, y: open ? 14 : 0)
-
-                Group {
-                    switch model.state {
-                    case .resting:
-                        if wings, let w = model.wing { RestingWings(g: g, kind: w).transition(.opacity) }
-                    case .moment(let m):
-                        MomentWings(g: g, moment: m).transition(.opacity)
-                    case .open:
-                        OpenDeck(g: g)
-                            .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.26).delay(0.08)),
-                                                    removal: .opacity.animation(.easeIn(duration: 0.08))))
-                    }
-                }
-                .frame(width: size.width, height: size.height, alignment: .top)
-                .clipShape(shape)
+        ZStack(alignment: .top) {
+            if LiquidMode.enabled {
+                surface(g, open: open)
+                    .padding(.top, g.topOffset > 0 ? g.topOffset - LiquidSurface.floatInset : 0)
             }
-            .frame(width: size.width, height: size.height)
-            .modifier(ShelfDrop(shelf: shelf, model: model))
-            .padding(.top, g.topOffset)
-            Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    if !LiquidMode.enabled {
+                        shape
+                            .fill(Ink.pill)
+                            .overlay(shape.stroke(Ink.palette.isLight ? Color.black.opacity(0.06) : Color.white.opacity(open ? 0.05 : 0), lineWidth: 1))
+                            .shadow(color: .black.opacity(open ? 0.55 : 0), radius: open ? 28 : 0, x: 0, y: open ? 14 : 0)
+                    }
+
+                    Group {
+                        switch model.state {
+                        case .resting:
+                            if wings, let w = model.wing { RestingWings(g: g, kind: w).transition(.opacity) }
+                        case .moment(let m):
+                            MomentWings(g: g, moment: m)
+                                .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.22).delay(0.1)),
+                                                        removal: .opacity.animation(.easeIn(duration: 0.1))))
+                        case .open:
+                            OpenDeck(g: g)
+                                .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.28).delay(0.12)),
+                                                        removal: .opacity.animation(.easeIn(duration: 0.08))))
+                        }
+                    }
+                    .frame(width: size.width, height: size.height, alignment: .top)
+                    .overlay {
+                        if open, let o = model.rippleOrigin {
+                            RippleLayer(origin: o, progress: ripple, color: Ink.text)
+                        }
+                    }
+                    .clipShape(shape)
+                }
+                .frame(width: size.width, height: size.height)
+                .modifier(ShelfDrop(shelf: shelf, model: model))
+                .padding(.top, g.topOffset)
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Motion.wing, value: model.wing)
         .environment(\.colorScheme, Ink.palette.isLight ? .light : .dark)
+        .onChange(of: model.momentSerial) { _ in startDrip() }
+        .onChange(of: model.rippleTick) { _ in
+            ripple = 0
+            withAnimation(.easeOut(duration: 1.15)) { ripple = 1 }
+        }
         .id(prefs.theme.rawValue + prefs.accentMode.rawValue)
+    }
+
+    /// The drop itself. Its shape follows the state; SwiftUI animates every number with the viscous springs.
+    private func surface(_ g: PillGeometry, open: Bool) -> some View {
+        let p = LiquidPose.of(model.state, g: g, wing: prefs.showWings ? model.wing : nil, openSize: model.openSize(g))
+        return LiquidSurface(width: p.width, height: p.height, radius: p.radius, budL: p.bud, budR: p.bud,
+                             drip: drip, dripX: dripX, ear: g.topOffset > 0 ? 0 : (open ? 7 : 4),
+                             rimAlpha: open ? 1 : 0.45, color: Ink.pill, rim: Ink.meniscus, floating: g.topOffset > 0)
+            .shadow(color: .black.opacity(open ? (Ink.palette.isLight ? 0.22 : 0.5) : 0), radius: open ? 26 : 0, x: 0, y: open ? 14 : 0)
+    }
+
+    /// Moments that mean "something happened" grow a bead under the wing, which swells, pinches off and falls.
+    private func startDrip() {
+        guard LiquidMode.enabled, case .moment(let m) = model.state else { return }
+        switch m.kind {
+        case .agent, .timer, .mail, .event: break
+        default: return
+        }
+        let g = prefs.geometry
+        dripX = -(g.width / 2 + IslandModel.momentWidth(m) * 0.42)
+        drip = 0
+        withAnimation(ViscousSpring(stiffness: 90, damping: 9).animation.delay(0.25)) { drip = 1 }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_250_000_000)
+            withAnimation(.easeIn(duration: 0.42)) { drip = 2.1 }
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            drip = 0
+        }
+    }
+}
+
+/// The numbers that describe the drop for each state.
+struct LiquidPose: Equatable {
+    var width: CGFloat
+    var height: CGFloat
+    var radius: CGFloat
+    var bud: CGFloat
+
+    static func of(_ s: IslandModel.State, g: PillGeometry, wing: WingKind?, openSize: CGSize) -> LiquidPose {
+        switch s {
+        case .resting: return LiquidPose(width: g.width, height: g.height, radius: g.cornerRadius, bud: wing?.width ?? 0)
+        case .moment(let m): return LiquidPose(width: g.width, height: g.height, radius: g.cornerRadius, bud: IslandModel.momentWidth(m))
+        case .open: return LiquidPose(width: openSize.width, height: openSize.height, radius: 34, bud: 0)
+        }
     }
 }
 
@@ -156,7 +223,7 @@ struct MomentWings: View {
         switch moment.kind {
         case .agent:
             Text(moment.tint == Ink.coral ? "Stopped" : "Done").font(.round(12, .semibold)).foregroundStyle(moment.tint)
-            BloomBurst(color: moment.tint).frame(width: 26, height: 26)
+            InkBloom(color: moment.tint, size: 30)
         case .volume, .brightness:
             Image(systemName: moment.symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.text)
                 .contentTransition(.symbolEffect(.replace))
@@ -173,7 +240,7 @@ struct MomentWings: View {
         switch moment.kind {
         case .volume, .brightness:
             HStack(spacing: 8) {
-                LevelBar(level: moment.level ?? 0, tint: moment.tint)
+                LiquidLevel(level: moment.level ?? 0, tint: moment.tint)
                 Text(moment.title).font(.round(11.5, .semibold)).monospacedDigit().foregroundStyle(Ink.text2)
                     .frame(width: 30, alignment: .trailing)
             }
@@ -205,27 +272,53 @@ struct LevelBar: View {
     }
 }
 
+/// The battery as a little tank: the liquid rises to the charge level, with a soft wave while it fills.
 struct BatteryGlyph: View {
     let level: Double
     let tint: Color
     var charging: Bool
+    @Environment(\.liquidTime) private var fixedTime
     @State private var shown: Double = 0
+    @State private var start = Date()
+    @State private var settled = false
+
     var body: some View {
         HStack(spacing: 1.5) {
-            ZStack(alignment: .leading) {
+            ZStack {
                 RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Ink.text3, lineWidth: 1.2)
-                RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(tint)
-                    .frame(width: max(3, 24 * CGFloat(RenderMode.snapshot ? level : shown)))
-                    .padding(2)
+                if let t = fixedTime {
+                    tank(level: level * Motion.levelSpring.value(t), phase: t * 7, calm: t)
+                } else if RenderMode.snapshot {
+                    tank(level: level, phase: 1.2, calm: 0.6)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: settled)) { ctx in
+                        let t = ctx.date.timeIntervalSince(start)
+                        tank(level: shown, phase: t * 7, calm: t)
+                    }
+                }
                 if charging {
                     Image(systemName: "bolt.fill").font(.system(size: 7.5, weight: .black)).foregroundStyle(Ink.pill)
-                        .frame(maxWidth: .infinity)
                 }
             }
             .frame(width: 30, height: 14)
             RoundedRectangle(cornerRadius: 1).fill(Ink.text3).frame(width: 2, height: 5)
         }
-        .onAppear { withAnimation(.easeOut(duration: 1.2).delay(0.15)) { shown = level } }
+        .onAppear { withAnimation(Motion.levelSpring.animation.delay(0.15)) { shown = level } }
+        .task {
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            settled = true
+        }
+    }
+
+    /// The liquid fills from the left (a battery is read left to right) and its surface settles from a wave to flat.
+    private func tank(level: Double, phase: Double, calm: Double) -> some View {
+        let amp = CGFloat(max(0, 1.6 * (1 - calm / 2.4)))
+        return WaveFill(level: CGFloat(min(max(level, 0.06), 1)), phase: CGFloat(phase), amplitude: amp)
+            .fill(tint)
+            .rotationEffect(.degrees(90))
+            .frame(width: 10, height: 26)
+            .frame(width: 26, height: 10)
+            .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
     }
 }
 
@@ -240,7 +333,28 @@ struct OpenDeck: View {
     @EnvironmentObject var weather: WeatherCenter
     @EnvironmentObject var prefs: Prefs
     @EnvironmentObject var shelf: ShelfStore
+    /// Preview renders only: draw the wipe from one tab to the current one at a fixed progress.
+    var previewWipe: (IslandTab, CGFloat)? = nil
     @Namespace private var tabSpace
+
+    private func paneBody(_ tab: IslandTab) -> some View {
+        ZStack {
+            switch tab {
+            case .today: TodayPane()
+            case .music: MusicPane()
+            case .notes: NotesPane()
+            case .agents: AgentsPane()
+            case .shelf: ShelfPane()
+            case .mail: MailPane()
+            case .launch: LaunchPane()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 20)
+        .frame(height: IslandModel.bodyHeight)
+        .background(Ink.pill.opacity(previewWipe == nil ? 0 : 1))
+        .clipped()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -253,23 +367,16 @@ struct OpenDeck: View {
             .padding(.horizontal, 18)
             .frame(height: g.height)
 
-            ZStack {
-                switch model.tab {
-                case .today: TodayPane()
-                case .music: MusicPane()
-                case .notes: NotesPane()
-                case .agents: AgentsPane()
-                case .shelf: ShelfPane()
-                case .mail: MailPane()
-                case .launch: LaunchPane()
+            if let w = previewWipe {
+                ZStack {
+                    paneBody(w.0)
+                    paneBody(model.tab).modifier(LiquidWipe(progress: w.1))
                 }
+            } else {
+                paneBody(model.tab)
+                    .transition(.liquidWipe)
+                    .id(model.tab)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 20)
-            .frame(height: IslandModel.bodyHeight)
-            .clipped()
-            .transition(.opacity)
-            .id(model.tab)
 
             footer.frame(height: IslandModel.footerHeight)
         }
@@ -401,11 +508,16 @@ struct ControlButton: View {
 }
 
 /// A small squeeze while pressed, springing back on release.
+/// Pressing a control squeezes it like a drop and spreads a little ring of water under your finger.
 struct PressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
+            .background {
+                Circle().fill(Ink.text.opacity(configuration.isPressed ? 0.10 : 0))
+                    .scaleEffect(configuration.isPressed ? 1.18 : 0.4)
+            }
+            .scaleEffect(x: configuration.isPressed ? 0.93 : 1, y: configuration.isPressed ? 0.88 : 1)
+            .animation(ViscousSpring(stiffness: 260, damping: 14).animation, value: configuration.isPressed)
     }
 }
 
@@ -647,31 +759,6 @@ struct PulseDot: View {
 }
 
 /// Rings opening outward like a flower, for a finished job.
-struct BloomBurst: View {
-    let color: Color
-    @State private var start = Date()
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { ctx in
-            let t = RenderMode.snapshot ? 0.55 : ctx.date.timeIntervalSince(start)
-            ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    let local = (t - Double(i) * 0.22).truncatingRemainder(dividingBy: 1.8)
-                    let p = max(0, min(1, local / 1.2))
-                    Circle().stroke(color.opacity((1 - p) * 0.7), lineWidth: 1.4).scaleEffect(0.35 + p * 0.9)
-                }
-                ForEach(0..<6, id: \.self) { i in
-                    let p = max(0, min(1, (t.truncatingRemainder(dividingBy: 1.8)) / 0.9))
-                    Capsule().fill(color.opacity(1 - p))
-                        .frame(width: 2, height: 4)
-                        .offset(y: -6 - p * 7)
-                        .rotationEffect(.degrees(Double(i) * 60))
-                }
-                Circle().fill(color).frame(width: 9, height: 9)
-            }
-        }
-    }
-}
-
 /// The resting island never moves on its own: still dots and still bars, no breathing or bobbing.
 struct StillDots: View {
     let count: Int

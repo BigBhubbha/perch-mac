@@ -70,7 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Chime.play(success: true)
             if self.prefs.haptics { Haptics.level() }
         }
-        hub.signals.onMoment = { [weak self] m in self?.island.flash(m) }
+        hub.signals.onMoment = { [weak self] m in
+            guard let self else { return }
+            self.island.flash(m)
+            if m.kind == .charging, m.symbol == "bolt.fill", self.prefs.waterSounds { WaterSound.play(.fill, volume: 0.35) }
+        }
         hub.calendar.onSoon = { [weak self] e in
             self?.island.flash(Moment(kind: .event, symbol: "calendar", title: e.title, detail: untilText(e.start.timeIntervalSinceNow).capitalizedFirst,
                                       tint: e.calendarColor, level: nil, duration: 4.5))
