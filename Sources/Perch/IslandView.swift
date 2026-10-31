@@ -7,6 +7,7 @@ struct IslandView: View {
     @EnvironmentObject var model: IslandModel
     @EnvironmentObject var prefs: Prefs
     @EnvironmentObject var shelf: ShelfStore
+    @EnvironmentObject var pour: PourCenter
     @State private var drip: CGFloat = 0
     @State private var dripX: CGFloat = 0
     @State private var ripple: CGFloat = 0
@@ -55,7 +56,7 @@ struct IslandView: View {
                     .clipShape(shape)
                 }
                 .frame(width: size.width, height: size.height)
-                .modifier(ShelfDrop(shelf: shelf, model: model))
+                .modifier(ShelfDrop(shelf: shelf, model: model, pour: pour))
                 .padding(.top, g.topOffset)
                 Spacer(minLength: 0)
             }
@@ -116,17 +117,27 @@ struct LiquidPose {
     }
 }
 
-/// Files dropped anywhere on the island land on the shelf. (Skipped in previews, which cannot draw it.)
+/// Files dropped anywhere on the island land on the shelf. Text and links split into droplets
+/// so you can pick where to pour them. (Skipped in previews, which cannot draw it.)
 struct ShelfDrop: ViewModifier {
     let shelf: ShelfStore
     let model: IslandModel
+    let pour: PourCenter
     func body(content: Content) -> some View {
         if RenderMode.snapshot {
             content
         } else {
-            content.onDrop(of: [.fileURL], isTargeted: Binding(get: { shelf.dropTargeted }, set: { shelf.dropTargeted = $0 })) { providers in
-                if model.tab != .shelf { model.tab = .shelf }
-                return shelf.accept(providers)
+            content.onDrop(of: PourCenter.types, isTargeted: Binding(get: { shelf.dropTargeted }, set: { shelf.dropTargeted = $0 })) { providers in
+                if providers.contains(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }), PourCenter.inFlight == nil {
+                    if model.tab != .shelf { model.tab = .shelf }
+                    return shelf.accept(providers)
+                }
+                Task { @MainActor in
+                    if let d = await PourCenter.resolve(providers) {
+                        withAnimation(Motion.wing) { pour.offer = d }
+                    }
+                }
+                return true
             }
         }
     }
@@ -333,9 +344,12 @@ struct OpenDeck: View {
     @EnvironmentObject var weather: WeatherCenter
     @EnvironmentObject var prefs: Prefs
     @EnvironmentObject var shelf: ShelfStore
+    @EnvironmentObject var pour: PourCenter
     /// Preview renders only: draw the wipe from one tab to the current one at a fixed progress.
     var previewWipe: (IslandTab, CGFloat)? = nil
-    @Namespace private var tabSpace
+    @State private var gooFrom: CGFloat = 0
+    @State private var gooIndex: CGFloat = 0
+    @State private var goo: CGFloat = 1
 
     private func paneBody(_ tab: IslandTab) -> some View {
         ZStack {
@@ -367,16 +381,32 @@ struct OpenDeck: View {
             .padding(.horizontal, 18)
             .frame(height: g.height)
 
-            if let w = previewWipe {
-                ZStack {
-                    paneBody(w.0)
-                    paneBody(model.tab).modifier(LiquidWipe(progress: w.1))
+            HStack(spacing: 0) {
+                Group {
+                    if let w = previewWipe {
+                        ZStack {
+                            paneBody(w.0)
+                            paneBody(model.tab).modifier(LiquidWipe(progress: w.1))
+                        }
+                    } else {
+                        paneBody(model.tab)
+                            .transition(.liquidWipe)
+                            .id(model.tab)
+                    }
                 }
-            } else {
-                paneBody(model.tab)
-                    .transition(.liquidWipe)
-                    .id(model.tab)
+                .frame(width: model.paneWidth(g))
+                .overlay {
+                    if let d = pour.offer {
+                        PourOffer(droplet: d).transition(.opacity)
+                    }
+                }
+                if model.spilled {
+                    PoolColumn()
+                        .frame(width: IslandModel.poolWidth, height: IslandModel.bodyHeight)
+                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.15)), removal: .opacity.animation(.easeIn(duration: 0.1))))
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             footer.frame(height: IslandModel.footerHeight)
         }
@@ -390,33 +420,34 @@ struct OpenDeck: View {
         }
     }
 
+    /// The tabs are droplets. The selection is a bead of liquid that stretches to the next tab and snaps together there.
+    /// Drop something on Notes, Shelf, Agents or Mail to pour it in.
     private var tabBar: some View {
-        HStack(spacing: 1) {
-            ForEach(model.visibleTabs) { t in
-                let active = model.tab == t
-                Button {
+        let tabs = model.visibleTabs
+        let index = CGFloat(tabs.firstIndex(of: model.tab) ?? 0)
+        let from = previewWipe.map { w in CGFloat(tabs.firstIndex(of: w.0) ?? 0) } ?? gooFrom
+        return HStack(spacing: 1) {
+            ForEach(Array(tabs.enumerated()), id: \.element) { i, t in
+                TabDroplet(tab: t, active: model.tab == t, badge: badge(t)) {
                     withAnimation(Motion.tab) { model.tab = t }
                     if prefs.haptics { Haptics.tick() }
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: t.symbol)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(active ? Ink.text : Ink.text3)
-                            .frame(width: 32, height: 28)
-                            .background {
-                                if active {
-                                    Capsule().fill(Ink.raisedHover).matchedGeometryEffect(id: "tab", in: tabSpace)
-                                }
-                            }
-                        if badge(t) {
-                            Circle().fill(Ink.accent).frame(width: 5, height: 5).offset(x: -6, y: 5)
-                        }
-                    }
-                    .contentShape(Rectangle())
+                } poured: {
+                    model.rippleOrigin = CGPoint(x: 18 + CGFloat(i) * 33 + 16, y: g.height / 2)
+                    model.rippleTick += 1
                 }
-                .buttonStyle(.plain)
-                .help(t.title)
             }
+        }
+        .background(alignment: .leading) {
+            GooTabs(from: from, to: index, progress: previewWipe?.1 ?? goo, color: Ink.text.opacity(Ink.palette.isLight ? 0.09 : 0.11))
+                .frame(width: CGFloat(tabs.count) * 33 + 24, height: 48)
+                .offset(x: -12)
+                .allowsHitTesting(false)
+        }
+        .onAppear { gooFrom = index; gooIndex = index }
+        .onChange(of: model.tab) { _ in
+            let new = CGFloat(model.visibleTabs.firstIndex(of: model.tab) ?? 0)
+            gooFrom = gooIndex; gooIndex = new; goo = 0
+            withAnimation(ViscousSpring(stiffness: 140, damping: 15).animation) { goo = 1 }
         }
     }
 
@@ -458,7 +489,23 @@ struct OpenDeck: View {
 
     private var footer: some View {
         HStack(spacing: 16) {
-            Text(model.tab.title).eyebrow()
+            if let t = pour.toast {
+                HStack(spacing: 6) {
+                    Circle().fill(pour.toastFailed ? Ink.coral : Ink.accent).frame(width: 6, height: 6)
+                    Text(t).font(.ui(11, .semibold)).foregroundStyle(pour.toastFailed ? Ink.coral : Ink.text)
+                }
+                .transition(.opacity)
+            } else if !prefs.pourHintSeen {
+                HStack(spacing: 8) {
+                    Image(systemName: "drop.fill").font(.system(size: 9.5)).foregroundStyle(Ink.accent)
+                    Text("Drag anything out and pour it on a tab. Flick down on the top edge to spill it open.")
+                        .font(.ui(11)).foregroundStyle(Ink.text2).lineLimit(1)
+                    Button("Got it") { withAnimation(Motion.snap) { prefs.pourHintSeen = true } }
+                        .buttonStyle(.plain).font(.ui(11, .semibold)).foregroundStyle(Ink.accent)
+                }
+            } else {
+                Text(model.tab.title).eyebrow()
+            }
             Spacer()
             FooterButton(title: "Updates", action: model.onCheckForUpdates)
             FooterButton(title: "Refit", action: model.onRecalibrate)

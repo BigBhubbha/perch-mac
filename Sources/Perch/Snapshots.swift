@@ -55,6 +55,8 @@ enum Snapshots {
         prefs.calendarOn = true
         prefs.lyricsOn = true
         prefs.clipboardOn = true
+        prefs.pourHintSeen = true
+        prefs.liquidSurface = true
 
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("perch-snap-notes.json")
         let hub = Hub(notesFile: tmp)
@@ -194,6 +196,30 @@ enum Snapshots {
         save(scene(400), "open-homework", to: dir)
         UserDefaults.standard.set("notes", forKey: "notes.mode")
 
+        // Pour.
+        hub.board.setSampleRequests([
+            PourRequest(id: "a1b2c3d4e5f6", kind: "file", title: "Lab poster final.pdf", body: nil, source: "Shelf", status: "open",
+                        claimedBy: nil, note: nil, createdAt: now.timeIntervalSince1970 * 1000),
+        ])
+        prefs.pourHintSeen = false
+        model.tab = .today
+        save(scene(400), "pour-first-hint", to: dir)
+        prefs.pourHintSeen = true
+        hub.pour.offer = Droplet(kind: .text, title: "Mitochondria make ATP through oxidative phosphorylation",
+                                 body: nil, url: nil, source: "Safari")
+        save(scene(400), "pour-offer-text", to: dir)
+        hub.pour.offer = nil
+        hub.pour.previewToast("Handed to your agents")
+        model.tab = .agents
+        save(scene(400), "pour-into-agents", to: dir)
+        hub.pour.previewToast(nil)
+        model.spilled = true
+        model.tab = .today
+        save(scene(400), "spill-today-with-pool", to: dir)
+        model.tab = .music
+        save(scene(400), "spill-music-with-pool", to: dir)
+        model.spilled = false
+
         // Empty and setup states.
         hub.timers.preview(nil, now: now)
         hub.music.clearSample()
@@ -223,7 +249,7 @@ enum Snapshots {
 
         let calModel = CalibrationModel(geometry: prefs.geometry, firstRun: true)
         save(ScreenSlice(height: 420, g: prefs.geometry, coverOnTop: true) {
-            CalibrationView(model: calModel).frame(width: 1100, height: 420)
+            CalibrationView(model: calModel).frame(width: 1200, height: 420)
         }, "fit", to: dir)
 
         for page in SettingsPage.allCases {
@@ -285,7 +311,7 @@ struct ScreenSlice<Content: View>: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 1100, height: height, alignment: .top)
+        .frame(width: 1200, height: height, alignment: .top)
         .clipped()
     }
 }

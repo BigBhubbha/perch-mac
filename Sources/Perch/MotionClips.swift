@@ -189,6 +189,31 @@ enum MotionClips {
             }
         }
         print("motion: dye")
+
+        // 9. Spill: a hard flick down and the island spreads sideways into a workspace with the pool.
+        model.tab = .today; model.spilled = true
+        let spilledSize = model.openSize(g, spilled: true)
+        let spilledPose = LiquidPose(width: spilledSize.width, height: spilledSize.height, radius: 34, bud: 0)
+        for i in 0..<34 {
+            let t = Double(i) / fps
+            let s = Motion.openSpring.value(t)
+            frame("spill", i, height: 400) {
+                Stage(g: g, pose: lerp(opened, spilledPose, s), rim: 1, shadow: 1, contentSize: spilledSize) { OpenDeck(g: g) }
+            }
+        }
+        model.spilled = false
+        print("motion: spill")
+
+        // 10. Pouring text in from another app: it splits into droplets, one per place it could go.
+        hub.pour.offer = Droplet(kind: .text, title: "Mitochondria make ATP through oxidative phosphorylation", body: nil, url: nil, source: "Safari")
+        for i in 0..<30 {
+            let t = Double(i) / fps
+            frame("pour-offer", i, height: 400, time: t) {
+                Stage(g: g, pose: opened, rim: 1, shadow: 1, contentSize: openSize) { OpenDeck(g: g) }
+            }
+        }
+        hub.pour.offer = nil
+        print("motion: pour-offer")
         model.state = .resting; model.wing = nil; model.tab = .today
     }
 }

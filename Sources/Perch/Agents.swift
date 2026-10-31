@@ -31,6 +31,21 @@ struct AgentRun: Codable, Identifiable, Equatable {
     var at: Date
 }
 
+/// Something you poured onto the Agents dot, waiting in the board's queue for a bot to pick it up.
+struct PourRequest: Decodable, Identifiable, Equatable {
+    let id: String
+    let kind: String
+    let title: String?
+    let body: String?
+    let source: String?
+    let status: String
+    let claimedBy: String?
+    let note: String?
+    let createdAt: Double
+}
+
+private struct RequestsReply: Decodable { let requests: [PourRequest] }
+
 private struct BoardReply: Decodable {
     let agents: [Agent]
     let now: Double
@@ -100,7 +115,47 @@ final class AgentBoard: ObservableObject {
         poll()
     }
 
-    func refreshSoon() { poll() }
+    func refreshSoon() { poll(); fetchRequests() }
+
+    // MARK: Pour queue
+
+    @Published private(set) var requests: [PourRequest] = []
+
+    private func boardRequest(_ path: String) -> URLRequest? {
+        let base = prefs.boardURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let key = prefs.boardKey
+        guard !base.isEmpty, !key.isEmpty, let url = URL(string: base + path) else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        return req
+    }
+
+    /// Hands something to the agents. Bots read the queue with `perch-signal requests`.
+    func sendRequest(kind: String, title: String, body: String?, source: String) async -> Bool {
+        guard var req = boardRequest("/v1/requests") else { return false }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["kind": kind, "title": title, "source": source]
+        if let body { payload["body"] = body }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        guard let res = try? await session.data(for: req) else { return false }
+        let ok = (res.1 as? HTTPURLResponse)?.statusCode == 200
+        if ok { fetchRequests() }
+        return ok
+    }
+
+    func fetchRequests() {
+        guard let req = boardRequest("/v1/requests") else { return }
+        session.dataTask(with: req) { [weak self] data, response, _ in
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let list = data.flatMap({ try? JSONDecoder().decode(RequestsReply.self, from: $0) })?.requests else { return }
+            Task { @MainActor in if self?.requests != list { self?.requests = list } }
+        }.resume()
+    }
+
+    /// Previews only.
+    func setSampleRequests(_ r: [PourRequest]) { requests = r }
 
     private func schedule(every seconds: TimeInterval) {
         timer?.invalidate()

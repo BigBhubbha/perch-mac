@@ -8,9 +8,17 @@ compatibility_date = "2026-10-01"
 name = "BOARD"
 class_name = "Board"
 
+[[durable_objects.bindings]]
+name = "REQUESTS"
+class_name = "Requests"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Board"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Requests"]
 
 # Secrets (set with `wrangler secret put`, never committed):
 #   WRITE_KEY  agents use it to report started / finished

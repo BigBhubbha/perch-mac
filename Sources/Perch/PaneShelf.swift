@@ -81,7 +81,7 @@ private struct FileTile: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? Ink.raisedHover : Ink.raised))
         .onHover { hover = $0 }
         .onTapGesture(count: 2) { shelf.open(item) }
-        .onDrag { NSItemProvider(contentsOf: item.url) ?? NSItemProvider() }
+        .pourable { .file(item.url) }
         .help(item.path)
     }
 }
@@ -144,6 +144,7 @@ private struct ClipRow: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hover ? Ink.raisedHover : .clear))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .pourable { .clip(clip) }
         .onTapGesture {
             shelf.copy(clip)
             withAnimation { copied = true }

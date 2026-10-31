@@ -78,5 +78,6 @@ private struct MailRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(count: 2) { gmail.open(mail) }
+        .pourable { .mail(mail) }
     }
 }

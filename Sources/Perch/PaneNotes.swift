@@ -101,6 +101,7 @@ struct NoteRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .pourable { .note(note) }
     }
 }
 
@@ -307,5 +308,6 @@ private struct TaskRow: View {
         .padding(.horizontal, 10).frame(height: 30)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hover ? Ink.raised : .clear))
         .onHover { hover = $0 }
+        .pourable { Droplet(kind: .text, title: task.title, body: task.subject.isEmpty ? nil : task.subject, url: nil, source: "Homework") }
     }
 }

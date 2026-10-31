@@ -64,10 +64,12 @@ final class Hub {
     let shelf = ShelfStore()
     let launcher = LauncherStore()
     let gmail = GmailCenter()
+    let pour: PourCenter
 
     /// Previews pass a scratch notes file so they never touch real notes.
     init(notesFile: URL? = nil) {
         notes = NotesStore(file: notesFile)
+        pour = PourCenter(notes: notes, tasks: tasks, shelf: shelf, board: board)
     }
 }
 
@@ -77,7 +79,7 @@ extension View {
             .environmentObject(h.music).environmentObject(h.notes).environmentObject(h.tasks)
             .environmentObject(h.board).environmentObject(h.signals).environmentObject(h.timers)
             .environmentObject(h.calendar).environmentObject(h.weather).environmentObject(h.shelf)
-            .environmentObject(h.launcher).environmentObject(h.gmail)
+            .environmentObject(h.launcher).environmentObject(h.gmail).environmentObject(h.pour)
     }
 }
 
@@ -94,6 +96,8 @@ final class IslandModel: ObservableObject {
     /// Where the pointer touched the island as it opened, in island coordinates, for the ripple.
     @Published var rippleOrigin: CGPoint?
     @Published var rippleTick = 0
+    /// Flicked down hard: the island spills into a wider workspace with the pool beside the pane.
+    @Published var spilled = false
     /// Bumps every time a new moment starts, so the surface can grow a drip.
     @Published var momentSerial = 0
 
@@ -108,6 +112,7 @@ final class IslandModel: ObservableObject {
     static let openWidth: CGFloat = 780
     static let bodyHeight: CGFloat = 232
     static let footerHeight: CGFloat = 34
+    static let poolWidth: CGFloat = 290
 
     init() {
         tab = IslandTab(rawValue: Prefs.shared.lastTab) ?? .today
@@ -115,10 +120,13 @@ final class IslandModel: ObservableObject {
 
     var isOpen: Bool { state == .open }
 
-    func openSize(_ g: PillGeometry) -> CGSize {
-        CGSize(width: max(IslandModel.openWidth, g.width + 480),
+    func openSize(_ g: PillGeometry, spilled: Bool? = nil) -> CGSize {
+        CGSize(width: max(IslandModel.openWidth, g.width + 480) + ((spilled ?? self.spilled) ? IslandModel.poolWidth : 0),
                height: g.height + IslandModel.bodyHeight + IslandModel.footerHeight)
     }
+
+    /// The width of the pane area, which stays the same when the island spills.
+    func paneWidth(_ g: PillGeometry) -> CGFloat { openSize(g, spilled: false).width }
 
     static func momentWidth(_ m: Moment) -> CGFloat {
         switch m.kind {
@@ -137,7 +145,7 @@ final class IslandModel: ObservableObject {
 
     /// The largest the island ever gets, so the window never clips the spring.
     func maxSize(_ g: PillGeometry) -> CGSize {
-        let o = openSize(g)
+        let o = openSize(g, spilled: true)
         return CGSize(width: max(o.width, g.width + IslandModel.momentWing * 2), height: o.height)
     }
 
@@ -209,6 +217,7 @@ final class IslandController {
     private var dragChangeAtDown = NSPasteboard(name: .drag).changeCount
     private var openedForDrop = false
     private var scrollAccum: CGFloat = 0
+    private var lastScrollAt = Date.distantPast
     var suspended = false { didSet { panel.alphaValue = suspended ? 0 : 1 } }
 
     private let shadowRoom: CGFloat = 40
@@ -335,6 +344,11 @@ final class IslandController {
             let dy = e.scrollingDeltaY, precise = e.hasPreciseScrollingDeltas
             MainActor.assumeIsolated { self?.scrolled(dy: dy, precise: precise) }
         }) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel], handler: { [weak self] e in
+            let dy = e.scrollingDeltaY, precise = e.hasPreciseScrollingDeltas
+            MainActor.assumeIsolated { self?.scrolled(dy: dy, precise: precise) }
+            return e
+        }) { monitors.append(m) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp], handler: { [weak self] _ in
             MainActor.assumeIsolated { self?.dragEnded() }
         }) { monitors.append(m) }
@@ -351,9 +365,10 @@ final class IslandController {
         case .resting, .moment:
             let hot = islandRect(for: model.state).insetBy(dx: -6, dy: -4)
             // Dragging a file up to the island opens the shelf so you can drop it.
-            if dragging, hot.insetBy(dx: -30, dy: -12).contains(p), isDraggingFiles() {
+            // Dragging a file up to the island opens the shelf; dragging text or a link opens it to pour.
+            if dragging, hot.insetBy(dx: -30, dy: -12).contains(p), let files = draggingPourable() {
                 openedForDrop = true
-                model.tab = .shelf
+                if files { model.tab = .shelf }
                 open()
                 return
             }
@@ -376,11 +391,14 @@ final class IslandController {
         }
     }
 
-    private func isDraggingFiles() -> Bool {
+    /// nil when nothing pourable is being dragged; true for files, false for text or links.
+    private func draggingPourable() -> Bool? {
         let pb = NSPasteboard(name: .drag)
-        guard pb.changeCount != dragChangeAtDown else { return false }
+        guard pb.changeCount != dragChangeAtDown else { return nil }
         let types = pb.types ?? []
-        return types.contains(.fileURL) || types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType"))
+        if types.contains(.fileURL) || types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType")) { return true }
+        if types.contains(.string) || types.contains(.URL) { return false }
+        return nil
     }
 
     private func dragEnded() {
@@ -405,8 +423,24 @@ final class IslandController {
             scrollAccum = max(0, scrollAccum + dy)
             if scrollAccum > 18 { scrollAccum = 0; open() }
         case .open:
-            break
+            // A hard flick down on the top band spills the island into the wider workspace; flick up to gather it.
+            let r = islandRect(for: .open)
+            let band = NSRect(x: r.minX, y: r.maxY - prefs.geometry.height - 12, width: r.width, height: prefs.geometry.height + 12)
+            guard band.contains(p) else { scrollAccum = 0; return }
+            if Date().timeIntervalSince(lastScrollAt) > 0.35 { scrollAccum = 0 }
+            lastScrollAt = Date()
+            scrollAccum += dy
+            if scrollAccum > 42, !model.spilled { scrollAccum = 0; spill(true) }
+            if scrollAccum < -30, model.spilled { scrollAccum = 0; spill(false) }
         }
+    }
+
+    func spill(_ on: Bool) {
+        guard model.isOpen, model.spilled != on else { return }
+        if prefs.haptics { Haptics.level() }
+        if on, prefs.waterSounds { WaterSound.play(.fill, volume: 0.22) }
+        withAnimation(on ? Motion.open : Motion.close) { model.spilled = on }
+        if on { hub.board.refreshSoon() }
     }
 
     private func checkLeave(_ p: NSPoint) {
@@ -493,7 +527,8 @@ final class IslandController {
         panel.ignoresMouseEvents = true
         hoverArmed = false
         closedAt = Date()
-        withAnimation(Motion.close) { model.state = .resting }
+        withAnimation(Motion.close) { model.state = .resting; model.spilled = false }
+        hub.pour.offer = nil
         playNextMoment()
     }
 

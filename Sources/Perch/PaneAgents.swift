@@ -14,6 +14,16 @@ struct AgentsPane: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(summary).eyebrow()
+                        let waiting = board.requests.filter { $0.status != "done" }
+                        if !waiting.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "drop.fill").font(.system(size: 8.5))
+                                Text("\(waiting.count) poured, \(waiting.contains { $0.status == "claimed" } ? "being picked up" : "waiting")")
+                                    .font(.ui(10.5, .medium))
+                            }
+                            .foregroundStyle(Ink.accent)
+                            .help(waiting.compactMap(\.title).joined(separator: "\n"))
+                        }
                         Spacer()
                         if case .failing(let why) = board.link {
                             Text(why).font(.ui(10.5)).foregroundStyle(Ink.coral).lineLimit(1)
@@ -21,7 +31,7 @@ struct AgentsPane: View {
                     }
                     if board.agents.isEmpty {
                         EmptyState(drawing: AnyView(DotsDrawing(lit: true)), title: "All quiet",
-                                   line: "When a Grok Bot starts a job it shows up here, and it blooms when the job is done.")
+                                   line: "When a Grok Bot starts a job it shows up here. Drop anything on this tab to hand it to one.")
                     } else {
                         Scrolling {
                             VStack(spacing: 8) {

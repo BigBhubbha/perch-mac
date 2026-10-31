@@ -14,7 +14,8 @@ struct MusicPane: View {
                     Artwork(image: music.artwork, accent: music.accent, radius: 20)
                         .frame(width: 168, height: 168)
                         .onTapGesture { music.openPlayer() }
-                        .help("Open \(t.appName)")
+                        .pourable { .song(t) }
+                        .help("Open \(t.appName). Drag it out to pour the song somewhere.")
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 8) {
                             Text(t.appName).eyebrow(music.accent)
@@ -196,6 +197,10 @@ private struct LyricsColumn: View {
                                 .foregroundStyle(j == i ? Ink.text : Ink.text.opacity(j < i ? 0.22 : 0.38))
                                 .lineLimit(2)
                                 .onTapGesture { music.seek(to: music.lyrics[j].time) }
+                                .pourable {
+                                    music.track.map { Droplet.lyric(line, track: $0) }
+                                        ?? Droplet(kind: .text, title: line, body: nil, url: nil, source: "Lyrics")
+                                }
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
