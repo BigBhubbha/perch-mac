@@ -121,8 +121,9 @@ struct LiquidSurface: View, Animatable {
         }
         // A bead that swells under the wing, pinches off and falls. It has to be fairly big to survive the threshold.
         if drip > 0.02 {
-            let rd: CGFloat = 9 * min(1, drip * 1.5) * max(0, min(1, 2.1 - drip))
-            let y = top + bh - rd * 0.6 + min(drip, 1) * 14 + max(0, drip - 1) * 40
+            let rd: CGFloat = 10 * min(1, drip * 1.5) * max(0, min(1, 2.1 - drip))
+            // Hanging: the bead overlaps the wing so the blur pulls a neck between them. Falling: it lets go.
+            let y = top + bh + min(drip, 1) * 7 + max(0, drip - 1) * 46
             let x = cx + dripX
             if rd > 0.3 { c.fill(Path(ellipseIn: CGRect(x: x - rd, y: y - rd, width: rd * 2, height: rd * 2.2)), with: ink) }
         }
@@ -178,14 +179,14 @@ struct InkCloud: View {
                 l.addFilter(.blur(radius: size * 0.07))
                 for p in Self.puffs {
                     let local = max(0, t - p.delay)
-                    let grow = 1 - exp(-local * 2.4)
+                    let grow = 1 - exp(-local * 1.4)
                     let swirl = p.angle + grow * 0.5
                     let d = half * p.reach * 1.2 * grow
                     let r = half * p.r * (0.4 + grow * 0.9)
-                    let alpha = pow(1 - grow, 1.3) * min(1, local * 6)
+                    let alpha = pow(1 - grow, 0.8) * min(1, local * 6)
                     let pt = CGPoint(x: c.x + CGFloat(cos(swirl) * d), y: c.y + CGFloat(sin(swirl) * d))
                     l.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: r * 2, height: r * 2)),
-                             with: .color(color.opacity(alpha * 0.7)))
+                             with: .color(color.opacity(alpha * 0.85)))
                 }
             }
             // What is left once the ink has spread: one clean dot.
