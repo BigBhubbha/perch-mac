@@ -41,6 +41,40 @@ enum MotionClips {
         }
     }
 
+    /// Made-up library and inbox for the spill previews.
+    static func sampleSpillData(hub: Hub, art: NSImage, now: Date) {
+        let songs: [(String, String, String, Double)] = [
+            ("Nikes", "Frank Ocean", "Blonde", 314), ("Ivy", "Frank Ocean", "Blonde", 249), ("Pink + White", "Frank Ocean", "Blonde", 184),
+            ("Self Control", "Frank Ocean", "Blonde", 249), ("Nights", "Frank Ocean", "Blonde", 307), ("Solo", "Frank Ocean", "Blonde", 257),
+            ("Pyramids", "Frank Ocean", "channel ORANGE", 592), ("Thinkin Bout You", "Frank Ocean", "channel ORANGE", 200),
+            ("Redbone", "Childish Gambino", "Awaken, My Love!", 326), ("Japanese Denim", "Daniel Caesar", "Get You", 270),
+            ("Best Part", "Daniel Caesar", "Freudian", 209), ("Sunflower", "Rex Orange County", "Pony", 252),
+        ]
+        let tracks = songs.enumerated().map { i, s in QueueTrack(id: "PID\(i)", index: i + 1, title: s.0, artist: s.1, album: s.2, duration: s.3) }
+        hub.library.preview(name: "Late night drive", tracks: tracks, current: "PID2",
+                            playlists: [LibraryPlaylist(name: "Late night drive", count: 48), LibraryPlaylist(name: "Study (no lyrics)", count: 112),
+                                        LibraryPlaylist(name: "Gym", count: 37), LibraryPlaylist(name: "Sunday morning", count: 29),
+                                        LibraryPlaylist(name: "Youth group worship", count: 54)],
+                            recent: [PlayedTrack(title: "Ivy", artist: "Frank Ocean", album: "Blonde", at: now.addingTimeInterval(-400)),
+                                     PlayedTrack(title: "Best Part", artist: "Daniel Caesar", album: "Freudian", at: now.addingTimeInterval(-3600)),
+                                     PlayedTrack(title: "Redbone", artist: "Childish Gambino", album: "Awaken, My Love!", at: now.addingTimeInterval(-7200)),
+                                     PlayedTrack(title: "Sunflower", artist: "Rex Orange County", album: "Pony", at: now.addingTimeInterval(-86400))],
+                            art: ["Frank Ocean|Blonde": art])
+        var inbox = hub.gmail.items
+        inbox += [
+            MailItem(id: "e", threadID: "e", from: "College Board", fromEmail: "noreply@collegeboard.org", subject: "Your AP scores are coming",
+                     snippet: "Here is what to expect in July", date: now.addingTimeInterval(-3600 * 20), unread: false),
+            MailItem(id: "f", threadID: "f", from: "Mom", fromEmail: "", subject: "Dinner Sunday?", snippet: "Grandma wants to know if you are coming",
+                     date: now.addingTimeInterval(-3600 * 26), unread: false),
+            MailItem(id: "g", threadID: "g", from: "Coach Reed", fromEmail: "", subject: "Practice moved to 4:30", snippet: "Field 2 because of the band",
+                     date: now.addingTimeInterval(-3600 * 30), unread: false),
+        ]
+        if let i = inbox.firstIndex(where: { $0.id == "b" }) { inbox[i].fromEmail = "alvarez@school.edu" }
+        hub.gmail.previewInbox(inbox, bodies: [
+            "a": "Hi,\n\nThree items are still open on your application checklist:\n\n1. Counselor recommendation\n2. School report\n3. Writing supplement for one college\n\nYou can finish these any time before the deadline. Log in to see the details.\n\nThe Common App team",
+        ])
+    }
+
     static func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat { a + (b - a) * CGFloat(t) }
     static func lerp(_ a: LiquidPose, _ b: LiquidPose, _ t: Double) -> LiquidPose {
         LiquidPose(width: lerp(a.width, b.width, t), height: lerp(a.height, b.height, t),
@@ -190,19 +224,30 @@ enum MotionClips {
         }
         print("motion: dye")
 
-        // 9. Spill: a hard flick down and the island spreads sideways into a workspace with the pool.
-        model.tab = .today; model.spilled = true
+        // 9. Spill: a hard flick down and the tab spreads into its own big view; flick up and it gathers back.
         let spilledSize = model.openSize(g, spilled: true)
         let spilledPose = LiquidPose(width: spilledSize.width, height: spilledSize.height, radius: 34, bud: 0)
-        for i in 0..<34 {
-            let t = Double(i) / fps
-            let s = Motion.openSpring.value(t)
-            frame("spill", i, height: 400) {
-                Stage(g: g, pose: lerp(opened, spilledPose, s), rim: 1, shadow: 1, contentSize: spilledSize) { OpenDeck(g: g) }
+        for tab in [IslandTab.mail, .music] {
+            model.tab = tab; model.spilled = true
+            for i in 0..<36 {
+                let t = Double(i) / fps
+                let s = Motion.openSpring.value(t)
+                frame("spill-\(tab.rawValue)", i, height: 600) {
+                    Stage(g: g, pose: lerp(opened, spilledPose, s), rim: 1, shadow: 1, contentSize: spilledSize,
+                          contentOpacity: 0.35 + 0.65 * clamp((t - 0.1) / 0.3)) { OpenDeck(g: g) }
+                }
             }
+            for i in 0..<26 {
+                let t = Double(i) / fps
+                let s = Motion.closeSpring.value(t)
+                frame("gather-\(tab.rawValue)", i, height: 600) {
+                    Stage(g: g, pose: lerp(spilledPose, opened, s), rim: 1, shadow: 1, contentSize: spilledSize,
+                          contentOpacity: 1 - 0.65 * clamp(t / 0.12)) { OpenDeck(g: g) }
+                }
+            }
+            print("motion: spill-\(tab.rawValue)")
         }
-        model.spilled = false
-        print("motion: spill")
+        model.spilled = false; model.tab = .today
 
         // 10. Pouring text in from another app: it splits into droplets, one per place it could go.
         hub.pour.offer = Droplet(kind: .text, title: "Mitochondria make ATP through oxidative phosphorylation", body: nil, url: nil, source: "Safari")

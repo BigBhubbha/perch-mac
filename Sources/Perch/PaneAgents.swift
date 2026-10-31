@@ -154,7 +154,7 @@ private struct StatusPip: View {
     }
 }
 
-private struct HistoryColumn: View {
+struct HistoryColumn: View {
     @EnvironmentObject var board: AgentBoard
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {

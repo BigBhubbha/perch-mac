@@ -49,7 +49,7 @@ struct NotesPane: View {
 
 // MARK: Notes
 
-private struct NoteList: View {
+struct NoteList: View {
     @EnvironmentObject var notes: NotesStore
     @EnvironmentObject var model: IslandModel
     var body: some View {
@@ -105,7 +105,7 @@ struct NoteRow: View {
     }
 }
 
-private struct NoteDetail: View {
+struct NoteDetail: View {
     @EnvironmentObject var notes: NotesStore
     @EnvironmentObject var model: IslandModel
     @AppStorage("notes.reading") private var reading = true
@@ -221,7 +221,7 @@ enum Markdown {
 
 // MARK: Homework
 
-private struct SubjectList: View {
+struct SubjectList: View {
     @EnvironmentObject var tasks: TaskStore
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -256,7 +256,7 @@ private struct SubjectList: View {
     }
 }
 
-private struct TaskBoard: View {
+struct TaskBoard: View {
     @EnvironmentObject var tasks: TaskStore
     @State private var draft = ""
     var body: some View {
@@ -278,7 +278,7 @@ private struct TaskBoard: View {
     }
 }
 
-private struct TaskRow: View {
+struct TaskRow: View {
     let task: TaskItem
     @EnvironmentObject var tasks: TaskStore
     @State private var hover = false

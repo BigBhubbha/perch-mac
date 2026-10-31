@@ -69,7 +69,7 @@ struct LaunchPane: View {
     }
 }
 
-private struct AppTile: View {
+struct AppTile: View {
     let app: LaunchApp
     @EnvironmentObject var launcher: LauncherStore
     @State private var hover = false
@@ -89,7 +89,7 @@ private struct AppTile: View {
     }
 }
 
-private struct ActionTile: View {
+struct ActionTile: View {
     let title: String
     let symbol: String
     let action: () -> Void
@@ -108,7 +108,7 @@ private struct ActionTile: View {
     }
 }
 
-private struct ShortcutRow: View {
+struct ShortcutRow: View {
     let name: String
     let choosing: Bool
     @EnvironmentObject var launcher: LauncherStore

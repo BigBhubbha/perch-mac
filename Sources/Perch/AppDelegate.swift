@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startServices() {
         hub.board.start()
         hub.music.start()
+        hub.library.watch(hub.music)
         hub.signals.start()
         hub.weather.start()
         hub.calendar.start()

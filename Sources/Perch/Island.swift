@@ -64,6 +64,7 @@ final class Hub {
     let shelf = ShelfStore()
     let launcher = LauncherStore()
     let gmail = GmailCenter()
+    let library = MusicLibrary()
     let pour: PourCenter
 
     /// Previews pass a scratch notes file so they never touch real notes.
@@ -79,7 +80,7 @@ extension View {
             .environmentObject(h.music).environmentObject(h.notes).environmentObject(h.tasks)
             .environmentObject(h.board).environmentObject(h.signals).environmentObject(h.timers)
             .environmentObject(h.calendar).environmentObject(h.weather).environmentObject(h.shelf)
-            .environmentObject(h.launcher).environmentObject(h.gmail).environmentObject(h.pour)
+            .environmentObject(h.launcher).environmentObject(h.gmail).environmentObject(h.pour).environmentObject(h.library)
     }
 }
 
@@ -112,7 +113,10 @@ final class IslandModel: ObservableObject {
     static let openWidth: CGFloat = 780
     static let bodyHeight: CGFloat = 232
     static let footerHeight: CGFloat = 34
-    static let poolWidth: CGFloat = 290
+    static let poolWidth: CGFloat = 270
+    /// Spilled: each tab spreads into its own big view.
+    static let spillWidth: CGFloat = 1080
+    static let spillBodyHeight: CGFloat = 440
 
     init() {
         tab = IslandTab(rawValue: Prefs.shared.lastTab) ?? .today
@@ -121,8 +125,12 @@ final class IslandModel: ObservableObject {
     var isOpen: Bool { state == .open }
 
     func openSize(_ g: PillGeometry, spilled: Bool? = nil) -> CGSize {
-        CGSize(width: max(IslandModel.openWidth, g.width + 480) + ((spilled ?? self.spilled) ? IslandModel.poolWidth : 0),
-               height: g.height + IslandModel.bodyHeight + IslandModel.footerHeight)
+        if spilled ?? self.spilled {
+            return CGSize(width: max(IslandModel.spillWidth, g.width + 600),
+                          height: g.height + IslandModel.spillBodyHeight + IslandModel.footerHeight)
+        }
+        return CGSize(width: max(IslandModel.openWidth, g.width + 480),
+                      height: g.height + IslandModel.bodyHeight + IslandModel.footerHeight)
     }
 
     /// The width of the pane area, which stays the same when the island spills.
@@ -230,7 +238,10 @@ final class IslandController {
         host.sizingOptions = []
         panel.contentView = host
         panel.ignoresMouseEvents = true
-        panel.onEscape = { [weak self] in self?.close() }
+        panel.onEscape = { [weak self] in
+            guard let self else { return }
+            if self.model.spilled { self.spill(false) } else { self.close() }
+        }
 
         prefs.$geometry.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { self?.place() }

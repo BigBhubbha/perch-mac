@@ -381,32 +381,36 @@ struct OpenDeck: View {
             .padding(.horizontal, 18)
             .frame(height: g.height)
 
-            HStack(spacing: 0) {
-                Group {
-                    if let w = previewWipe {
-                        ZStack {
-                            paneBody(w.0)
-                            paneBody(model.tab).modifier(LiquidWipe(progress: w.1))
-                        }
-                    } else {
-                        paneBody(model.tab)
-                            .transition(.liquidWipe)
-                            .id(model.tab)
-                    }
-                }
-                .frame(width: model.paneWidth(g))
-                .overlay {
-                    if let d = pour.offer {
-                        PourOffer(droplet: d).transition(.opacity)
-                    }
-                }
+            ZStack {
                 if model.spilled {
-                    PoolColumn()
-                        .frame(width: IslandModel.poolWidth, height: IslandModel.bodyHeight)
-                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.15)), removal: .opacity.animation(.easeIn(duration: 0.1))))
+                    // Each tab spreads into its own big view.
+                    SpillView(tab: model.tab)
+                        .frame(height: IslandModel.spillBodyHeight)
+                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.3).delay(0.18)),
+                                                removal: .opacity.animation(.easeIn(duration: 0.1))))
+                        .id("spill-" + model.tab.rawValue)
+                } else {
+                    Group {
+                        if let w = previewWipe {
+                            ZStack {
+                                paneBody(w.0)
+                                paneBody(model.tab).modifier(LiquidWipe(progress: w.1))
+                            }
+                        } else {
+                            paneBody(model.tab)
+                                .transition(.liquidWipe)
+                                .id(model.tab)
+                        }
+                    }
+                    .transition(.opacity.animation(.easeOut(duration: 0.12)))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .overlay {
+                if let d = pour.offer {
+                    PourOffer(droplet: d).transition(.opacity)
+                }
+            }
 
             footer.frame(height: IslandModel.footerHeight)
         }

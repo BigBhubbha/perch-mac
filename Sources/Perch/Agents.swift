@@ -146,6 +146,7 @@ final class AgentBoard: ObservableObject {
     }
 
     func fetchRequests() {
+        if RenderMode.snapshot { return }
         guard let req = boardRequest("/v1/requests") else { return }
         session.dataTask(with: req) { [weak self] data, response, _ in
             guard (response as? HTTPURLResponse)?.statusCode == 200,

@@ -213,11 +213,12 @@ enum Snapshots {
         model.tab = .agents
         save(scene(400), "pour-into-agents", to: dir)
         hub.pour.previewToast(nil)
+        MotionClips.sampleSpillData(hub: hub, art: art, now: now)
         model.spilled = true
-        model.tab = .today
-        save(scene(400), "spill-today-with-pool", to: dir)
-        model.tab = .music
-        save(scene(400), "spill-music-with-pool", to: dir)
+        for tab in IslandTab.allCases {
+            model.tab = tab
+            save(scene(600), "spill-\(tab.rawValue)", to: dir)
+        }
         model.spilled = false
 
         // Empty and setup states.

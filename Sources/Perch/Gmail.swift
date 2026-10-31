@@ -55,6 +55,12 @@ final class GmailCenter: ObservableObject {
 
     var onNewMail: (MailItem) -> Void = { _ in }
 
+    // The big inbox view (when the island spills on the Mail tab).
+    @Published private(set) var inbox: [MailItem] = []
+    @Published private(set) var inboxLoading = false
+    @Published private(set) var bodies: [String: String] = [:]
+    @Published var inboxQuery = ""
+
     private var accessToken: String?
     private var accessExpires = Date.distantPast
     private var timer: Timer?
@@ -259,12 +265,73 @@ final class GmailCenter: ObservableObject {
         }
     }
 
+    /// Loads the inbox (read and unread), optionally filtered with Gmail search words.
+    func loadInbox() async {
+        guard canSync else { return }
+        inboxLoading = true
+        defer { inboxLoading = false }
+        let q = ("in:inbox " + inboxQuery).trimmingCharacters(in: .whitespaces)
+        guard let list = await api("messages?q=" + q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)! + "&maxResults=25") else { return }
+        let ids = ((list["messages"] as? [[String: Any]]) ?? []).compactMap { $0["id"] as? String }
+        var found: [String: MailItem] = [:]
+        await withTaskGroup(of: MailItem?.self) { group in
+            for id in ids { group.addTask { await self.metadata(id) } }
+            for await m in group { if let m { found[m.id] = m } }
+        }
+        inbox = ids.compactMap { found[$0] }
+    }
+
+    private func metadata(_ id: String) async -> MailItem? {
+        guard let m = await api("messages/\(id)?format=metadata&metadataHeaders=From&metadataHeaders=Subject") else { return nil }
+        let headers = ((m["payload"] as? [String: Any])?["headers"] as? [[String: Any]]) ?? []
+        func h(_ n: String) -> String { headers.first { ($0["name"] as? String)?.lowercased() == n.lowercased() }?["value"] as? String ?? "" }
+        let from = Self.splitFrom(h("From"))
+        let ms = Double((m["internalDate"] as? String) ?? "0") ?? 0
+        let labels = (m["labelIds"] as? [String]) ?? []
+        return MailItem(id: id, threadID: (m["threadId"] as? String) ?? id, from: from.0, fromEmail: from.1,
+                        subject: h("Subject").isEmpty ? "(no subject)" : h("Subject"),
+                        snippet: Self.decodeEntities((m["snippet"] as? String) ?? ""),
+                        date: Date(timeIntervalSince1970: ms / 1000), unread: labels.contains("UNREAD"))
+    }
+
+    /// The text of one message for the reading pane. Plain text when the sender included it, else the HTML with tags removed.
+    func loadBody(_ m: MailItem) async {
+        guard bodies[m.id] == nil, let full = await api("messages/\(m.id)?format=full"), let payload = full["payload"] as? [String: Any] else { return }
+        bodies[m.id] = Self.bodyText(payload) ?? m.snippet
+    }
+
+    static func bodyText(_ part: [String: Any]) -> String? {
+        func find(_ p: [String: Any], _ mime: String) -> String? {
+            if (p["mimeType"] as? String) == mime, let data = (p["body"] as? [String: Any])?["data"] as? String, let d = decodeBase64URL(data) {
+                return String(data: d, encoding: .utf8)
+            }
+            for c in (p["parts"] as? [[String: Any]]) ?? [] { if let t = find(c, mime) { return t } }
+            return nil
+        }
+        if let t = find(part, "text/plain") { return t.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let html = find(part, "text/html") else { return nil }
+        var t = html.replacingOccurrences(of: "<(style|script)[^>]*>[\\s\\S]*?</\\1>", with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: "<br\\s*/?>|</p>|</div>|</tr>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        t = decodeEntities(t).replacingOccurrences(of: "&nbsp;", with: " ")
+        t = t.replacingOccurrences(of: "\n[ \t]*\n([ \t]*\n)+", with: "\n\n", options: .regularExpression)
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func decodeBase64URL(_ s: String) -> Data? {
+        var b = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        return Data(base64Encoded: b)
+    }
+
     func markRead(_ m: MailItem) {
+        if let i = inbox.firstIndex(where: { $0.id == m.id }) { inbox[i].unread = false }
         items.removeAll { $0.id == m.id }; unreadCount = max(0, unreadCount - 1)
         Task { _ = await api("messages/\(m.id)/modify", method: "POST", json: ["removeLabelIds": ["UNREAD"]]) }
     }
 
     func archive(_ m: MailItem) {
+        inbox.removeAll { $0.id == m.id }
         items.removeAll { $0.id == m.id }; unreadCount = max(0, unreadCount - 1)
         Task { _ = await api("messages/\(m.id)/modify", method: "POST", json: ["removeLabelIds": ["UNREAD", "INBOX"]]) }
     }
@@ -301,6 +368,8 @@ final class GmailCenter: ObservableObject {
     }
 
     func previewState(_ s: State) { state = s }
+
+    func previewInbox(_ list: [MailItem], bodies: [String: String]) { inbox = list; self.bodies = bodies }
 
     func preview(_ list: [MailItem], unread: Int, account: String) {
         items = list; unreadCount = unread; self.account = account; state = .ready; lastSync = Date()

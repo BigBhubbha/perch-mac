@@ -53,7 +53,7 @@ struct LazyGridish<Item: Identifiable, Cell: View>: View {
     }
 }
 
-private struct FileTile: View {
+struct FileTile: View {
     let item: ShelfItem
     @EnvironmentObject var shelf: ShelfStore
     @State private var hover = false
@@ -86,7 +86,7 @@ private struct FileTile: View {
     }
 }
 
-private struct ClipColumn: View {
+struct ClipColumn: View {
     @EnvironmentObject var shelf: ShelfStore
     @EnvironmentObject var prefs: Prefs
     var body: some View {
@@ -120,7 +120,7 @@ private struct ClipColumn: View {
     }
 }
 
-private struct ClipRow: View {
+struct ClipRow: View {
     let clip: Clip
     @EnvironmentObject var shelf: ShelfStore
     @State private var hover = false
