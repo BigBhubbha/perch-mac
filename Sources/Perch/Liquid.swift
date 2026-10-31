@@ -123,7 +123,7 @@ struct LiquidSurface: View, Animatable {
         if drip > 0.02 {
             let rd: CGFloat = 10 * min(1, drip * 1.5) * max(0, min(1, 2.1 - drip))
             // Hanging: the bead overlaps the wing so the blur pulls a neck between them. Falling: it lets go.
-            let y = top + bh - 10 + min(drip, 1) * 6 + max(0, drip - 1) * 46
+            let y = top + bh - 10 + min(drip, 1.25) * 6 + max(0, drip - 1.25) * 55
             let x = cx + dripX
             if rd > 0.3 { c.fill(Path(ellipseIn: CGRect(x: x - rd, y: y - rd, width: rd * 2, height: rd * 2.2)), with: ink) }
         }
