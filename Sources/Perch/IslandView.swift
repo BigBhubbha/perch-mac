@@ -101,13 +101,13 @@ struct IslandView: View {
 }
 
 /// The numbers that describe the drop for each state.
-struct LiquidPose: Equatable {
+struct LiquidPose {
     var width: CGFloat
     var height: CGFloat
     var radius: CGFloat
     var bud: CGFloat
 
-    static func of(_ s: IslandModel.State, g: PillGeometry, wing: WingKind?, openSize: CGSize) -> LiquidPose {
+    @MainActor static func of(_ s: IslandModel.State, g: PillGeometry, wing: WingKind?, openSize: CGSize) -> LiquidPose {
         switch s {
         case .resting: return LiquidPose(width: g.width, height: g.height, radius: g.cornerRadius, bud: wing?.width ?? 0)
         case .moment(let m): return LiquidPose(width: g.width, height: g.height, radius: g.cornerRadius, bud: IslandModel.momentWidth(m))
