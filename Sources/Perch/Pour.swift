@@ -505,7 +505,7 @@ struct PoolColumn: View {
             } else {
                 Scrolling {
                     VStack(spacing: 4) {
-                        ForEach(items.prefix(9)) { item in
+                        ForEach(items.prefix(RenderMode.snapshot ? 5 : 12)) { item in
                             row(item).transition(.sinkAndEvaporate)
                         }
                     }
@@ -513,7 +513,9 @@ struct PoolColumn: View {
                 }
             }
         }
-        .padding(.leading, 6).padding(.trailing, 20)
+        .padding(.leading, 12).padding(.trailing, 20).padding(.vertical, 12)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .clipped()
         .overlay(alignment: .leading) { Rectangle().fill(Ink.hairline).frame(width: 1).padding(.vertical, 6) }
     }
 
@@ -524,8 +526,8 @@ struct PoolColumn: View {
                 Circle().fill(item.tint.opacity(0.18))
                 Image(systemName: item.symbol).font(.system(size: 9 + 3 * item.weight, weight: .semibold)).foregroundStyle(item.tint)
             }
-            .frame(width: 20 + 10 * item.weight, height: 20 + 10 * item.weight)
-            .frame(width: 30)
+            .frame(width: 16 + 10 * item.weight, height: 16 + 10 * item.weight)
+            .frame(width: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title).font(.ui(12, .semibold)).foregroundStyle(Ink.text).lineLimit(1)
                 Text(item.detail).font(.ui(10.5)).foregroundStyle(Ink.text3).lineLimit(1)
@@ -539,7 +541,7 @@ struct PoolColumn: View {
                 .help("Done. It evaporates.")
             }
         }
-        .padding(.horizontal, 8).frame(height: 38)
+        .padding(.horizontal, 8).frame(height: 34)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.raised))
         .contentShape(Rectangle())
         .onTapGesture { if let tab = item.tab { withAnimation(Motion.tab) { model.tab = tab } } }

@@ -438,7 +438,7 @@ struct OpenDeck: View {
             }
         }
         .background(alignment: .leading) {
-            GooTabs(from: from, to: index, progress: previewWipe?.1 ?? goo, color: Ink.text.opacity(Ink.palette.isLight ? 0.09 : 0.11))
+            GooTabs(from: from, to: index, progress: previewWipe?.1 ?? goo, color: Ink.text.opacity(Ink.palette.isLight ? 0.10 : 0.14))
                 .frame(width: CGFloat(tabs.count) * 33 + 24, height: 48)
                 .offset(x: -12)
                 .allowsHitTesting(false)
