@@ -86,6 +86,7 @@ private struct TodaySpill: View {
                         }
                     }
                     .card(14, padding: 14)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 SpillColumn(title: "Homework and to-dos", trailing: "\(tasks.openCount) open") {
                     Scrolling {
