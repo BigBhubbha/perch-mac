@@ -100,7 +100,7 @@ struct Backdrop: View {
                     .opacity((Ink.palette.isLight ? 0.30 : 0.42) * Double(min(1, p * 1.4)))
                     .offset(x: -220)
             }
-            DyeLayer(color: accent, progress: p, strength: Ink.palette.isLight ? 0.22 : 0.30)
+            DyeLayer(color: accent, progress: p, strength: Ink.palette.isLight ? 0.22 : 0.40)
             LinearGradient(colors: [Ink.pill.opacity(0), Ink.pill.opacity(0.85)], startPoint: .leading, endPoint: .trailing)
         }
         .padding(.horizontal, -20)

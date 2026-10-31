@@ -74,7 +74,7 @@ struct LiquidSurface: View, Animatable {
     /// Extra room drawn above the shapes when floating, so the blur is not cut off.
     static let floatInset: CGFloat = 18
 
-    static let blur: CGFloat = 6.5
+    static let blur: CGFloat = 5.5
 
     var body: some View {
         Canvas { ctx, size in
@@ -119,12 +119,12 @@ struct LiquidSurface: View, Animatable {
             let left = cx - width / 2 - budL - ear * 2.2
             c.fill(Path(CGRect(x: left, y: y0, width: total + ear * 4.4, height: ear + extra)), with: ink)
         }
-        // A bead that swells, pinches off and falls.
+        // A bead that swells under the wing, pinches off and falls. It has to be fairly big to survive the threshold.
         if drip > 0.02 {
-            let rd: CGFloat = 5.5 * min(1, drip * 1.6) * max(0, min(1, 2.1 - drip))
-            let y = top + height - 4 + min(drip, 1) * 13 + max(0, drip - 1) * 34
+            let rd: CGFloat = 9 * min(1, drip * 1.5) * max(0, min(1, 2.1 - drip))
+            let y = top + bh - rd * 0.6 + min(drip, 1) * 14 + max(0, drip - 1) * 40
             let x = cx + dripX
-            if rd > 0.3 { c.fill(Path(ellipseIn: CGRect(x: x - rd, y: y - rd, width: rd * 2, height: rd * 2.15)), with: ink) }
+            if rd > 0.3 { c.fill(Path(ellipseIn: CGRect(x: x - rd, y: y - rd, width: rd * 2, height: rd * 2.2)), with: ink) }
         }
     }
 }
@@ -174,19 +174,22 @@ struct InkCloud: View {
         Canvas { ctx, sz in
             let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
             let half = Double(min(sz.width, sz.height)) / 2
-            ctx.addFilter(.blur(radius: size * 0.06))
-            for p in Self.puffs {
-                let local = max(0, t - p.delay)
-                let grow = 1 - exp(-local * 2.4)
-                let swirl = p.angle + grow * 0.5
-                let d = half * p.reach * grow
-                let r = half * p.r * (0.4 + grow * 0.9)
-                let alpha = (1 - grow * 0.72) * min(1, local * 6)
-                let pt = CGPoint(x: c.x + CGFloat(cos(swirl) * d), y: c.y + CGFloat(sin(swirl) * d))
-                ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: r * 2, height: r * 2)),
-                         with: .color(color.opacity(alpha * 0.75)))
+            ctx.drawLayer { l in
+                l.addFilter(.blur(radius: size * 0.07))
+                for p in Self.puffs {
+                    let local = max(0, t - p.delay)
+                    let grow = 1 - exp(-local * 2.4)
+                    let swirl = p.angle + grow * 0.5
+                    let d = half * p.reach * 1.2 * grow
+                    let r = half * p.r * (0.4 + grow * 0.9)
+                    let alpha = pow(1 - grow, 1.3) * min(1, local * 6)
+                    let pt = CGPoint(x: c.x + CGFloat(cos(swirl) * d), y: c.y + CGFloat(sin(swirl) * d))
+                    l.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: r * 2, height: r * 2)),
+                             with: .color(color.opacity(alpha * 0.7)))
+                }
             }
-            let core = half * 0.22 * (1 - 0.35 * min(1, t / 1.5))
+            // What is left once the ink has spread: one clean dot.
+            let core = half * (0.34 - 0.08 * min(1, t / 1.2))
             ctx.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core, width: core * 2, height: core * 2)), with: .color(color))
         }
     }
@@ -247,9 +250,9 @@ struct RippleLayer: View, Animatable {
                 let p = max(0, (Double(progress) - lag) / (1 - lag))
                 guard p > 0 else { continue }
                 let r = CGFloat(10 + p * 230)
-                let alpha = (1 - p) * (i == 0 ? 0.32 : 0.18)
+                let alpha = (1 - p) * (i == 0 ? 0.15 : 0.08)
                 ctx.stroke(Path(ellipseIn: CGRect(x: origin.x - r, y: origin.y - r * 0.82, width: r * 2, height: r * 1.64)),
-                           with: .color(color.opacity(alpha)), lineWidth: CGFloat(1.6 - p))
+                           with: .color(color.opacity(alpha)), lineWidth: CGFloat(1.3 - p * 0.6))
             }
         }
         .allowsHitTesting(false)
